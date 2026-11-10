@@ -1,2 +1,2 @@
-import {PreviewPage} from "@/components/shell/preview";
-export default function Page(){return <PreviewPage title="Jobs" phase={2}/>}
+import {JobsPage} from "@/components/phase2/jobs";
+export default function Page(){return <JobsPage/>}
