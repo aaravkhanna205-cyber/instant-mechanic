@@ -1,0 +1,17 @@
+"use client";
+import {useState} from "react";
+import type {ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode} from "react";
+import {X} from "lucide-react";
+export function Button({variant="default",className="",...p}:ButtonHTMLAttributes<HTMLButtonElement>&{variant?:"default"|"primary"}){return <button {...p} className={`btn ${variant==="primary"?"btn-primary":""} ${className}`}/>}
+export function Card({children,className="",...p}:HTMLAttributes<HTMLDivElement>){return <div {...p} className={`panel ${className}`}>{children}</div>}
+export function Input(p:InputHTMLAttributes<HTMLInputElement>){return <input {...p} className={`control ${p.className||""}`}/>}
+export function StatusBadge({children}: {children:ReactNode}){return <span className="badge">{children}</span>}
+export function Skeleton({height=16}:{height?:number}){return <div className="skeleton" style={{height}}/>}
+export function Tabs({options}:{options:string[]}){const [value,setValue]=useState(options[0]);return <div role="tablist" className="flex gap-2 flex-wrap">{options.map(o=><button type="button" role="tab" aria-selected={o===value} key={o} className={`btn ${o===value?"btn-primary":""}`} onClick={()=>setValue(o)}>{o}</button>)}</div>}
+export function Dialog({label,children}:{label:string,children:ReactNode}){const [open,setOpen]=useState(false);return <><Button onClick={()=>setOpen(true)}>{label}</Button>{open&&<div role="presentation" onMouseDown={()=>setOpen(false)} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"><div role="dialog" aria-modal="true" aria-label={label} onMouseDown={e=>e.stopPropagation()} className="panel w-full max-w-lg p-5"><div className="flex justify-between items-center mb-3"><strong>{label}</strong><button aria-label="Close" onClick={()=>setOpen(false)}><X size={20}/></button></div>{children}</div></div>}</>}
+export function Table({headers,rows}:{headers:string[],rows:string[][]}){return <div className="overflow-x-auto"><table className="w-full text-left"><thead>{headers.map(h=><th className="p-3 border-b border-[var(--border)]" key={h}>{h}</th>)}</thead><tbody>{rows.map((r,i)=><tr key={i}>{r.map((c,j)=><td className="p-3 border-b border-[var(--border)]" key={j}>{c}</td>)}</tr>)}</tbody></table></div>}
+export function Pagination({pages=4}:{pages?:number}){const [page,setPage]=useState(1);return <div className="flex gap-3 items-center"><Button disabled={page===1} onClick={()=>setPage(x=>x-1)}>Previous</Button><span>Page {page} of {pages}</span><Button disabled={page===pages} onClick={()=>setPage(x=>x+1)}>Next</Button></div>}
+export function DropdownMenu({label,items}:{label:string,items:{label:string,onClick:()=>void}[]}){return <details className="relative"><summary className="btn list-none">{label}</summary><div className="panel absolute right-0 top-full mt-2 min-w-40 z-20 p-2">{items.map(x=><button key={x.label} onClick={(e)=>{x.onClick();e.currentTarget.closest('details')?.removeAttribute('open')}} className="block w-full text-left rounded p-2 hover:bg-[var(--soft)]">{x.label}</button>)}</div></details>}
+export function Toast({message,onClose}:{message:string,onClose:()=>void}){return <div role="status" className="fixed right-4 bottom-4 z-50 panel p-4 flex gap-4 items-center">{message}<Button onClick={onClose}>Close</Button></div>}
+
+export function Form({children,onSubmit}:{children:ReactNode,onSubmit:(event:React.FormEvent<HTMLFormElement>)=>void}){return <form onSubmit={onSubmit} className="space-y-4">{children}</form>}
