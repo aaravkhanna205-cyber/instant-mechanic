@@ -1,2 +1,2 @@
-import {JobDetail} from "@/components/phase2/jobs";
-export default function Page(){return <JobDetail/>}
+import {HiringKanban} from "@/components/phase2-completion/kanban";
+export default function Page(){return <HiringKanban/>}

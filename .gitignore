@@ -28,3 +28,7 @@ backend/storage/
 *.tsbuildinfo
 lint-report.txt
 **/lint-report.txt
+.phase2-backup-*/
+**/typecheck-report.txt
+**/lint-report.txt
+*.tsbuildinfo

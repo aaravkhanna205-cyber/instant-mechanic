@@ -1,2 +1,2 @@
-import {AdminPage} from "@/components/phase2/other";
-export default function Page(){return <AdminPage/>}
+import {AdminComplete} from "@/components/phase2-completion/admin";
+export default function Page(){return <AdminComplete/>}
