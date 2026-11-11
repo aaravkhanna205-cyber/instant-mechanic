@@ -19,3 +19,11 @@ app.include_router(system_router)
 
 from app.api.auth import router as auth_router
 app.include_router(auth_router)
+
+from app.api.recruitment import router as recruitment_router
+app.include_router(recruitment_router)
+from app.api.management import router as management_router, reg as registration_router
+app.include_router(management_router)
+app.include_router(registration_router)
+from app.api.password_reset import router as recovery_router
+app.include_router(recovery_router)
