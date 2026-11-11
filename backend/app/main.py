@@ -16,3 +16,6 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-CSRF-Token", "Authorization"],
 )
 app.include_router(system_router)
+
+from app.api.auth import router as auth_router
+app.include_router(auth_router)

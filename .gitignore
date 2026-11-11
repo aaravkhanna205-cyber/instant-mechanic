@@ -37,3 +37,7 @@ lint-report.txt
 backend/.env
 *.bak
 .phase3-backup-*/
+!**/.env.*.example
+**/.pytest_cache/
+.phase*-backup-*/
+*-report.txt
