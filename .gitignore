@@ -32,3 +32,8 @@ lint-report.txt
 **/typecheck-report.txt
 **/lint-report.txt
 *.tsbuildinfo
+
+.phase3-fresh.env
+backend/.env
+*.bak
+.phase3-backup-*/
