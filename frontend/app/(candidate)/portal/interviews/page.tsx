@@ -1,2 +1,5 @@
-import {CandidateWorkspace} from "@/components/phase2-completion/portal";
-export default function Page(){return <CandidateWorkspace initialTab="interviews"/>}
+import { PortalInterviewsPage } from "@/components/live/portal";
+
+export default function Page() {
+  return <PortalInterviewsPage />;
+}

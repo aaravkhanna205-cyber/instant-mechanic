@@ -22,7 +22,7 @@ def main():
         pong=client.ping()
         print('Redis:',bool(pong))
     finally:client.close()
-    if missing or rev!='0002_phase3_admin' or not vector or not pong:
+    if missing or rev!='0003_phase3_completion' or not vector or not pong:
         raise SystemExit('INCOMPLETE: '+', '.join(sorted(missing)))
     print('PHASE 3 DATABASE READY')
 

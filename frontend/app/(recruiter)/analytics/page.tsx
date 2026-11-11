@@ -1,2 +1,5 @@
-import {AnalyticsPage} from "@/components/phase2/other";
-export default function Page(){return <AnalyticsPage/>}
+import { AnalyticsPage } from "@/components/live/analytics";
+
+export default function Page() {
+  return <AnalyticsPage />;
+}

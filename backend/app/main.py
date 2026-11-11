@@ -27,3 +27,8 @@ app.include_router(management_router)
 app.include_router(registration_router)
 from app.api.password_reset import router as recovery_router
 app.include_router(recovery_router)
+from app.api.candidate_import import router as candidate_import_router
+app.include_router(candidate_import_router)
+from app.api.privacy import router as privacy_router, admin_router as privacy_admin_router
+app.include_router(privacy_router)
+app.include_router(privacy_admin_router)

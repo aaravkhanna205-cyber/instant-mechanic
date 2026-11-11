@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.schema import User, Organization, OrganizationMembership, AuditLog, Job, JobCategory, Application
+from app.models.admin_tables import import_batches
 from app.security.passwords import hash_password
 from app.security.dependencies import get_db, get_current_user, get_redis, get_session_record, require_platform_admin, require_recruiter_for_org
 from app.security.sessions import SessionRecord
@@ -38,6 +39,10 @@ class MembershipInput(BaseModel):
     email: EmailStr
     organization_id: UUID
     role: str
+
+
+class UserPatch(BaseModel):
+    active: bool
 
 
 class SettingInput(BaseModel):
@@ -90,6 +95,37 @@ def register(payload: RegisterInput, request: Request, db: Session = Depends(get
 def users(_: User = Depends(require_platform_admin), db: Session = Depends(get_db), limit: int = 100):
     items = db.scalars(select(User).order_by(User.created_at.desc()).limit(min(max(1,limit),200))).all()
     return [{'id':str(u.id),'email':u.email,'full_name':u.full_name,'active':u.active,'is_platform_admin':u.is_platform_admin} for u in items]
+
+
+@router.patch('/users/{user_id}')
+def update_user(user_id: UUID, body: UserPatch, _: None = Depends(csrf), admin: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(404, 'Account not found')
+    if target.id == admin.id:
+        raise HTTPException(409, 'You cannot deactivate your own account')
+    target.active = body.active
+    log(db, admin.id, 'user.activate' if body.active else 'user.deactivate', target=target.id)
+    db.commit()
+    return {'id': str(target.id), 'active': target.active}
+
+
+@router.get('/organizations/{organization_id}/members')
+def members(organization_id: UUID, _: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
+    rows = db.execute(select(OrganizationMembership, User).join(User, OrganizationMembership.user_id == User.id)
+                      .where(OrganizationMembership.organization_id == organization_id).order_by(User.full_name)).all()
+    return [{'user_id': str(u.id), 'email': u.email, 'full_name': u.full_name, 'role': m.role, 'active': u.active} for m, u in rows]
+
+
+@router.delete('/organizations/{organization_id}/members/{user_id}')
+def remove_member(organization_id: UUID, user_id: UUID, _: None = Depends(csrf), admin: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
+    member = db.scalar(select(OrganizationMembership).where(OrganizationMembership.user_id == user_id, OrganizationMembership.organization_id == organization_id))
+    if not member:
+        raise HTTPException(404, 'Membership not found')
+    db.delete(member)
+    log(db, admin.id, 'membership.remove', organization_id, user_id)
+    db.commit()
+    return {'ok': True}
 
 
 @router.post('/memberships', status_code=201)
@@ -205,14 +241,14 @@ async def commit_import(organization_id:UUID, request:Request, file:UploadFile=F
 
 @router.get('/organizations/{organization_id}/imports')
 def imports(organization_id:UUID, _:User=Depends(require_recruiter_for_org), db:Session=Depends(get_db)):
-    records=db.execute(text('SELECT id,filename,status,created_at FROM import_batches WHERE organization_id=:org ORDER BY created_at DESC LIMIT 100'),{'org':organization_id}).all()
-    return [{'id':str(r[0]),'filename':r[1],'status':r[2],'created_at':r[3].isoformat()} for r in records]
+    records=db.execute(select(import_batches).where(import_batches.c.organization_id==organization_id).order_by(import_batches.c.created_at.desc()).limit(100)).all()
+    return [{'id':str(r.id),'filename':r.filename,'status':r.status,'kind':r.kind,'created_at':r.created_at.isoformat()} for r in records]
 
 
 @router.post('/organizations/{organization_id}/imports/{batch_id}/undo')
 def undo(organization_id:UUID,batch_id:UUID,_:None=Depends(csrf),actor:User=Depends(require_recruiter_for_org),db:Session=Depends(get_db)):
-    row=db.execute(text('SELECT status FROM import_batches WHERE id=:id AND organization_id=:org FOR UPDATE'),{'id':batch_id,'org':organization_id}).first()
-    if row is None: raise HTTPException(404,'Batch not found')
+    row=db.execute(select(import_batches.c.status,import_batches.c.kind).where(import_batches.c.id==batch_id,import_batches.c.organization_id==organization_id).with_for_update()).first()
+    if row is None or row[1]!='jobs': raise HTTPException(404,'Batch not found')
     if row[0]!='applied': raise HTTPException(409,'Batch already undone')
     job_ids=[r[0] for r in db.execute(text('SELECT job_id FROM import_rows WHERE batch_id=:id AND job_id IS NOT NULL'),{'id':batch_id}).all()]
     for jid in job_ids:

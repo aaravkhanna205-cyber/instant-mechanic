@@ -1,2 +1,6 @@
-import {AuthForm} from "@/components/auth/auth-form";
-export default function Page(){return <AuthForm/>}
+import { redirect } from "next/navigation";
+
+/** Onboarding is handled by a platform administrator assigning roles. */
+export default function Page() {
+  redirect("/login");
+}

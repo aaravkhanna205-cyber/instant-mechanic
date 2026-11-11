@@ -1,55 +1,96 @@
-# Instant Mechanic Hire — Phase 3 consolidation
+# Instant Mechanic Hire — Phase 3 completion
 
-## Intended branch
-`phase3-rebuild-20261111-095645`. This update assumes the existing FastAPI foundation, the `0001_fresh_schema` migration (16 tables), the Phase 3 authentication package and associated dependencies. It does not modify the earlier Phase 2 demo screens.
+Branch: `phase3-completion` (built on `phase3-rebuild-20261111-095645`).
 
-## Changes
-- Recruitment endpoints, hiring stages, organization-scoped jobs/candidates/interviews/analytics and official roles
-- Self-service candidate registration, recruiter role assignment by the platform admin
-- Six admin tables in migration `0002_phase3_admin`, total 22 application tables
-- Platform-admin users/settings/audit endpoints
-- CSV/XLSX **jobs-only** import with read-only preview, row validation, drafts-only commit, undo subject to no applications or status changes
-- SMTP-backed password reset routes (requires SMTP setup; cannot function until configured)
-- New `/phase3` live recruiter/admin workspace, `/phase3/candidate` self-service portal, `/phase3/register` registration screen, shared typed API client
+Phase 3 is the backend, login and the live screens. After this branch the whole
+workspace reads and writes PostgreSQL; no screen shows demo data any more.
 
-## Important scope / constraints
-This update is not verified on your own Windows system until commands and browser tests succeed. The existing `/admin`, `/dashboard`, `/jobs`, `/candidates`, `/interviews` Phase 2 pages remain demo/mock content and are NOT silently described as live. The new `/phase3` route is live and uses the same yellow-orange-white palette. Resumes and AI intelligence belong to Phase 4; uploading and parsing PDF/DOCX files is not implemented here. SMTP must be configured for password reset. Only job CSV/XLSX import is implemented; bulk candidate import is still not implemented. These are known outstanding roadmap items, so do not claim full Phase 3 acceptance until they are addressed.
+## What this branch adds
 
-## Commands (project root)
+Backend
+- **Candidate import** (CSV/XLSX): read-only preview, all-or-nothing commit, undo.
+  Each row becomes an application at the *Applied* stage for a vacancy.
+  Columns: `full_name,email` (required), `phone,city,skills,job_title` (optional).
+  New people get an account **without a password**; they set one with "Forgot password".
+- **Data-deletion requests**: a candidate asks, a platform admin approves or rejects.
+  Approval deletes profile, applications and interviews, anonymizes and closes the account.
+- **Migration `0003_phase3_completion`**: additive columns on `import_rows` and
+  `data_deletion_requests`. No table is dropped or rewritten.
+- Richer lists (candidate and vacancy names on applications and interviews), stage
+  history, stage and status counts in analytics, own profile and interviews for
+  candidates, interview feedback list, member list, remove member, deactivate account.
+- Interview meeting links must start with `http://` or `https://`.
+
+Frontend
+- `/dashboard`, `/jobs`, `/candidates`, `/interviews`, `/analytics`, `/admin` are live.
+- `/jobs/import` and `/candidates/upload` are the two spreadsheet imports.
+- `/portal` (overview, vacancies, applications, interviews) is the live candidate portal.
+- `/login`, `/register`, `/forgot-password`, `/reset-password` are live.
+- Old addresses still work: `/auth-live` is the sign-in page, `/phase3` opens the
+  dashboard, `/phase3/candidate` opens the portal.
+- `/agents` and `/approvals` stay as Phase 6 previews.
+
+## Commands
+
+Start PostgreSQL and Redis first (project root):
+
 ```powershell
-# After installer
+docker compose --env-file .phase3-fresh.env -f compose.phase3-fresh.yml up -d
+```
+
+Backend, with the virtual environment active:
+
+```powershell
 cd backend
-.\.venv\Scripts\python.exe -m pip install -r requirements-phase3-completion.txt
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m alembic upgrade head
-.\.venv\Scripts\python.exe -m scripts.verify_phase3
-.\.venv\Scripts\python.exe -m scripts.seed_job_categories
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-# separate terminal
+python -m pip install -r requirements-phase3-completion.txt
+python -m pytest -q
+python -m alembic upgrade head
+python -m scripts.verify_phase3
+python -m scripts.seed_job_categories
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+`alembic upgrade head` must print `Running upgrade 0002_phase3_admin -> 0003_phase3_completion`
+the first time. `verify_phase3` must end with `PHASE 3 DATABASE READY`.
+
+Frontend, in a second terminal:
+
+```powershell
 cd frontend
+npm install
 npm run typecheck
-npx next build --webpack
+npm run lint
 npm run dev -- --hostname 127.0.0.1 --port 3000
 ```
-The frontend `.env.local` should set `NEXT_PUBLIC_API_URL=http://127.0.0.1:8000`; backend `.env` should allow the exact frontend origin in `CORS_ORIGINS`. Never commit either file. Keep PostgreSQL and Redis running.
 
-## Live tests
-1. `/api/ready` confirms PostgreSQL and Redis.
-2. Bootstrap platform admin if none exists, using `python -m scripts.bootstrap_admin` (never put passwords on CLI).
-3. Log in at `/auth-live`; open `/phase3`; create an organization.
-4. Create a draft job using an official role, publish it, refresh and verify persistence.
-5. Register a candidate at `/phase3/register`, sign in, create a profile and apply at `/phase3/candidate`.
-6. As a recruiter, verify candidate and application visibility scoped to the organization; move the application stage, schedule an interview.
-7. As platform admin, verify users, role assignments, settings, audit history.
-8. Upload a small CSV (headers: `title,category_slug,description,location`), preview, commit draft jobs, then undo. Test a bad category row and confirm import rejected without partial writes.
-9. Log out; confirm that protected data cannot be accessed. Use a second org/candidate to verify 403/404 isolation.
-10. Run `Verify-And-Push-Phase3.ps1` after completing browser checks. Supply `-Push` only when ready to stage, commit and push your branch.
+`frontend\.env.local` needs `NEXT_PUBLIC_API_URL=http://127.0.0.1:8000`.
+`backend\.env` needs the frontend address in `CORS_ORIGINS`. Never commit either file.
 
-## SMTP password reset (optional until mail credentials are available)
-Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `RESET_URL_BASE` as server-side environment variables (not `NEXT_PUBLIC_*`). `RESET_URL_BASE` must be HTTPS. This package supplies API endpoints but no hosted email provider; reset UI is at `/phase3/reset-password`; plan production testing before enabling.
+## Acceptance checks in the browser
 
-## Security warnings
-- `APP_ENV=production` changes cookie to secure SameSite=None; this requires HTTPS, correct CORS and cross-origin cookie policy. Prefer same-site frontend/API deployment or a Next.js same-origin proxy.
-- Never commit `.env` or secrets; a local `.gitignore` does not remove previously committed secrets from history.
-- Do not use `docker compose down -v` or migrate down on your working data.
-- No automated candidate rejection, scoring or hiring decisions.
+1. Open `/dashboard` while signed out: you land on `/login`.
+2. Sign in as the platform admin. With no organization, open Super Admin → Organizations and create it.
+3. Jobs → New vacancy → save → Publish. Refresh: it is still there.
+4. Jobs → Import jobs: a file with a wrong `category_slug` is refused whole; a clean file imports drafts; Undo removes them.
+5. Candidates → Import candidates: pick a default vacancy, preview, tick the confirmation, import. Both people appear under Candidates.
+6. Open a candidate: move the stage with a note, schedule an interview, open the stage history.
+7. Interviews → open the interview → save feedback.
+8. Register a new candidate at `/register`, sign in: you land on `/portal`, and `/dashboard` sends you back to the portal.
+9. In the portal: save the profile, apply to the vacancy, check My applications, then ask to delete your data.
+10. As admin: Super Admin → Deletion requests → Approve. The person disappears from Candidates and can no longer sign in.
+11. Super Admin → People and roles: assign a registered person the recruiter role; sign in as them and confirm they see only their organization.
+
+## Still open
+
+- **Password reset email** needs `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`,
+  `SMTP_FROM` and an HTTPS `RESET_URL_BASE` in `backend\.env`. Until then imported people
+  cannot set a password, and "Forgot password" answers that email is not set up.
+- **Consent and retention wording** must be checked by a lawyer (India's DPDP Act).
+  The deletion workflow is provided; the legal text is not.
+- **Resume upload** is Phase 4. Candidates currently apply with their profile only.
+- Audit log and account lists show the latest 100 and 200 entries; paging is not built.
+
+## Safety
+
+- Do not run `docker compose down -v` or `alembic downgrade` on data you want to keep.
+- Never commit `.env` files. No automated rejection, scoring or hiring decisions exist anywhere.

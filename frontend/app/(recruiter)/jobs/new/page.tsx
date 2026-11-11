@@ -1,2 +1,5 @@
-import {JobEditor} from "@/components/phase2/jobs";
-export default function Page(){return <JobEditor/>}
+import { JobFormPage } from "@/components/live/jobs";
+
+export default function Page() {
+  return <JobFormPage />;
+}

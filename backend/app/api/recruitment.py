@@ -7,7 +7,7 @@ from uuid import UUID
 import hmac
 import re
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -68,9 +68,13 @@ def job_out(job: Job):
             "status": job.status, "created_at": job.created_at.isoformat() if job.created_at else None}
 
 
-def application_out(a: Application):
+def application_out(a: Application, **extra):
     return {"id": str(a.id), "job_id": str(a.job_id), "candidate_id": str(a.candidate_id),
-            "stage": a.stage, "applied_at": a.applied_at.isoformat() if a.applied_at else None}
+            "stage": a.stage, "applied_at": a.applied_at.isoformat() if a.applied_at else None, **extra}
+
+
+def iso(value: datetime | None):
+    return value.isoformat() if value else None
 
 
 class OrganizationInput(BaseModel):
@@ -111,6 +115,16 @@ class InterviewInput(BaseModel):
     scheduled_at: datetime
     interviewer_id: UUID | None = None
     meeting_url: str | None = Field(default=None, max_length=500)
+
+
+    @field_validator("meeting_url")
+    @classmethod
+    def web_link_only(cls, value: str | None) -> str | None:
+        # The link is shown to candidates as a clickable address, so only web links are accepted.
+        value = (value or "").strip() or None
+        if value and not re.match(r"^https?://[^\s]+$", value, re.I):
+            raise ValueError("Meeting link must start with http:// or https://")
+        return value
 
 
 class InterviewPatch(BaseModel):
@@ -184,6 +198,12 @@ def create_job(organization_id: UUID, body: JobInput, _: None = Depends(require_
     return job_out(job)
 
 
+@router.get("/organizations/{organization_id}/jobs/{job_id}")
+def get_job(organization_id: UUID, job_id: UUID, _: User = Depends(require_recruiter_for_org),
+            db: Session = Depends(get_db)):
+    return job_out(job_for_org(db, organization_id, job_id))
+
+
 @router.patch("/organizations/{organization_id}/jobs/{job_id}")
 def patch_job(organization_id: UUID, job_id: UUID, body: JobPatch, _: None = Depends(require_csrf),
               user: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
@@ -198,6 +218,14 @@ def patch_job(organization_id: UUID, job_id: UUID, body: JobPatch, _: None = Dep
     audit(db, organization_id, user.id, "job.update", "job", job.id)
     db.commit(); db.refresh(job)
     return job_out(job)
+
+
+@router.get("/me/candidate-profile")
+def my_candidate_profile(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    profile = db.scalar(select(CandidateProfile).where(CandidateProfile.user_id == user.id))
+    if not profile:
+        return {"exists": False, "phone": None, "city": None, "skills": {}}
+    return {"exists": True, "phone": profile.phone, "city": profile.city, "skills": profile.skills or {}}
 
 
 @router.put("/me/candidate-profile")
@@ -238,18 +266,50 @@ def apply(job_id: UUID, _: None = Depends(require_csrf), user: User = Depends(ge
 
 @router.get("/me/applications")
 def my_applications(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    records = db.scalars(select(Application).join(CandidateProfile).where(CandidateProfile.user_id == user.id)
+    records = db.execute(select(Application, Job.title, Job.location)
+                         .join(CandidateProfile, Application.candidate_id == CandidateProfile.id)
+                         .join(Job, Application.job_id == Job.id)
+                         .where(CandidateProfile.user_id == user.id)
                          .order_by(Application.applied_at.desc())).all()
-    return [application_out(a) for a in records]
+    return [application_out(a, job_title=title, job_location=location) for a, title, location in records]
+
+
+@router.get("/me/interviews")
+def my_interviews(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = db.execute(select(Interview, Job.title)
+                      .join(Application, Interview.application_id == Application.id)
+                      .join(Job, Application.job_id == Job.id)
+                      .join(CandidateProfile, Application.candidate_id == CandidateProfile.id)
+                      .where(CandidateProfile.user_id == user.id)
+                      .order_by(Interview.scheduled_at.desc())).all()
+    return [{"id": str(i.id), "application_id": str(i.application_id), "job_title": title, "status": i.status,
+             "scheduled_at": iso(i.scheduled_at), "meeting_url": i.meeting_url} for i, title in rows]
 
 
 @router.get("/organizations/{organization_id}/applications")
 def list_applications(organization_id: UUID, _: User = Depends(require_recruiter_for_org),
                       db: Session = Depends(get_db)):
     must_org(db, organization_id)
-    rows = db.scalars(select(Application).join(Job).where(Job.organization_id == organization_id)
+    rows = db.execute(select(Application, Job.title, User.full_name, User.email)
+                      .join(Job, Application.job_id == Job.id)
+                      .join(CandidateProfile, Application.candidate_id == CandidateProfile.id)
+                      .join(User, CandidateProfile.user_id == User.id)
+                      .where(Job.organization_id == organization_id)
                       .order_by(Application.applied_at.desc())).all()
-    return [application_out(a) for a in rows]
+    return [application_out(a, job_title=title, candidate_name=name, candidate_email=email)
+            for a, title, name, email in rows]
+
+
+@router.get("/organizations/{organization_id}/applications/{application_id}/history")
+def application_history(organization_id: UUID, application_id: UUID, _: User = Depends(require_recruiter_for_org),
+                        db: Session = Depends(get_db)):
+    application_for_org(db, organization_id, application_id)
+    rows = db.execute(select(ApplicationStageHistory, User.full_name)
+                      .outerjoin(User, ApplicationStageHistory.changed_by_id == User.id)
+                      .where(ApplicationStageHistory.application_id == application_id)
+                      .order_by(ApplicationStageHistory.changed_at.desc())).all()
+    return [{"id": str(h.id), "previous_stage": h.previous_stage, "new_stage": h.new_stage, "note": h.note,
+             "changed_by": name, "changed_at": iso(h.changed_at)} for h, name in rows]
 
 
 @router.get("/organizations/{organization_id}/candidates")
@@ -259,7 +319,7 @@ def candidates(organization_id: UUID, _: User = Depends(require_recruiter_for_or
     candidate_ids = select(Application.candidate_id).join(Job).where(Job.organization_id == organization_id).distinct()
     rows = db.execute(select(CandidateProfile, User).join(User, CandidateProfile.user_id == User.id)
                       .where(CandidateProfile.id.in_(candidate_ids))).all()
-    return [{"id": str(p.id), "full_name": u.full_name, "email": u.email,
+    return [{"id": str(p.id), "full_name": u.full_name, "email": u.email, "phone": p.phone,
              "city": p.city, "skills": p.skills} for p, u in rows]
 
 
@@ -285,11 +345,20 @@ def change_stage(organization_id: UUID, application_id: UUID, body: StageInput,
 def interviews(organization_id: UUID, _: User = Depends(require_recruiter_for_org),
                db: Session = Depends(get_db)):
     must_org(db, organization_id)
-    rows = db.scalars(select(Interview).join(Application).join(Job).where(Job.organization_id == organization_id)
+    rows = db.execute(select(Interview, Job.title, User.full_name)
+                      .join(Application, Interview.application_id == Application.id)
+                      .join(Job, Application.job_id == Job.id)
+                      .join(CandidateProfile, Application.candidate_id == CandidateProfile.id)
+                      .join(User, CandidateProfile.user_id == User.id)
+                      .where(Job.organization_id == organization_id)
                       .order_by(Interview.scheduled_at.desc())).all()
+    feedback = dict(db.execute(select(InterviewFeedback.interview_id, func.count(InterviewFeedback.id))
+                               .where(InterviewFeedback.interview_id.in_([i.id for i, _, _ in rows]))
+                               .group_by(InterviewFeedback.interview_id)).all()) if rows else {}
     return [{"id": str(i.id), "application_id": str(i.application_id), "status": i.status,
-             "scheduled_at": i.scheduled_at.isoformat() if i.scheduled_at else None}
-            for i in rows]
+             "scheduled_at": iso(i.scheduled_at), "meeting_url": i.meeting_url,
+             "job_title": title, "candidate_name": name, "feedback_count": feedback.get(i.id, 0)}
+            for i, title, name in rows]
 
 
 @router.post("/organizations/{organization_id}/interviews", status_code=201)
@@ -343,6 +412,19 @@ def add_feedback(organization_id: UUID, interview_id: UUID, body: FeedbackInput,
     return {"id": str(feedback.id), "interview_id": str(interview_id)}
 
 
+@router.get("/organizations/{organization_id}/interviews/{interview_id}/feedback")
+def list_feedback(organization_id: UUID, interview_id: UUID, _: User = Depends(require_recruiter_for_org),
+                  db: Session = Depends(get_db)):
+    interview = db.get(Interview, interview_id)
+    if not interview:
+        raise HTTPException(404, "Interview not found")
+    application_for_org(db, organization_id, interview.application_id)
+    rows = db.execute(select(InterviewFeedback, User.full_name).join(User, InterviewFeedback.reviewer_id == User.id)
+                      .where(InterviewFeedback.interview_id == interview_id)).all()
+    return [{"id": str(f.id), "reviewer_id": str(f.reviewer_id), "reviewer": name, "score": f.score, "comments": f.comments}
+            for f, name in rows]
+
+
 @router.get("/organizations/{organization_id}/analytics")
 def analytics(organization_id: UUID, _: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
     must_org(db, organization_id)
@@ -350,8 +432,15 @@ def analytics(organization_id: UUID, _: User = Depends(require_recruiter_for_org
     app_count = db.scalar(select(func.count(Application.id)).join(Job).where(Job.organization_id == organization_id)) or 0
     interview_count = db.scalar(select(func.count(Interview.id)).join(Application).join(Job)
                                 .where(Job.organization_id == organization_id)) or 0
+    stages = dict(db.execute(select(Application.stage, func.count(Application.id)).join(Job)
+                             .where(Job.organization_id == organization_id).group_by(Application.stage)).all())
+    job_statuses = dict(db.execute(select(Job.status, func.count(Job.id))
+                                   .where(Job.organization_id == organization_id).group_by(Job.status)).all())
+    candidate_count = db.scalar(select(func.count(func.distinct(Application.candidate_id))).join(Job)
+                                .where(Job.organization_id == organization_id)) or 0
     return {"organization_id": str(organization_id), "jobs": job_count,
-            "applications": app_count, "interviews": interview_count}
+            "applications": app_count, "interviews": interview_count, "candidates": candidate_count,
+            "stages": stages, "job_statuses": job_statuses}
 
 
 @router.get("/organizations/{organization_id}/audit-logs")

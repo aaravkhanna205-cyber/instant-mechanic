@@ -1,10 +1,5 @@
-"use client";
-import {useState} from "react";
-import {useRouter} from "next/navigation";
-import {api} from "../../../lib/api/phase3";
-export default function Register(){
- const router=useRouter();const [email,setEmail]=useState("");const [fullName,setFullName]=useState("");const [password,setPassword]=useState("");const [error,setError]=useState("");const [done,setDone]=useState(false);
- async function submit(e:React.FormEvent<HTMLFormElement>){e.preventDefault();setError("");try{await api('/api/auth/register',{method:'POST',body:JSON.stringify({email,full_name:fullName,password})});setDone(true);}catch(err){setError(err instanceof Error?err.message:String(err));}}
- const inp={width:'100%',padding:12,border:'1px solid #dacfc0',borderRadius:8,marginTop:5};
- return <main style={{background:'#fffaf2',minHeight:'100vh',display:'grid',placeItems:'center',padding:20,fontFamily:'Arial,sans-serif'}}><section style={{background:'white',border:'1px solid #ebdfd1',padding:35,borderRadius:14,maxWidth:460,width:'100%'}}><h1>Instant Mechanic Hire</h1><h2>Create candidate account</h2>{done?<><p>Account created successfully. You can now sign in.</p><button onClick={()=>router.push('/auth-live')} style={{padding:12,background:'#ffbe24',border:0,borderRadius:8}}>Go to login</button></>:<form onSubmit={submit} style={{display:'grid',gap:17}}><label>Full name<input style={inp} required minLength={2} maxLength={160} value={fullName} onChange={e=>setFullName(e.target.value)}/></label><label>Email<input type="email" style={inp} required value={email} onChange={e=>setEmail(e.target.value)}/></label><label>Password (12+ characters)<input type="password" autoComplete="new-password" style={inp} required minLength={12} value={password} onChange={e=>setPassword(e.target.value)}/></label>{error&&<p role='alert' style={{color:'#b42318'}}>{error}</p>}<button style={{background:'#ffbe24',border:0,borderRadius:9,padding:13,fontWeight:700}}>Register</button></form>}<p><a href="/auth-live">Already registered? Sign in</a></p></section></main>;
+import { RegisterPage } from "@/components/live/auth";
+
+export default function Page() {
+  return <RegisterPage />;
 }

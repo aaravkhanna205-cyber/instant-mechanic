@@ -1,2 +1,5 @@
-import {InterviewsPage} from "@/components/phase2/interviews";
-export default function Page(){return <InterviewsPage/>}
+import { InterviewsPage } from "@/components/live/interviews";
+
+export default function Page() {
+  return <InterviewsPage />;
+}
