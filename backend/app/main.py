@@ -32,3 +32,8 @@ app.include_router(candidate_import_router)
 from app.api.privacy import router as privacy_router, admin_router as privacy_admin_router
 app.include_router(privacy_router)
 app.include_router(privacy_admin_router)
+
+# Phase 4 human-reviewed AI assistance
+from app.phase4_ai.api import router as phase4_router
+app.include_router(phase4_router)
+

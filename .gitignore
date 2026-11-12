@@ -41,3 +41,9 @@ backend/.env
 **/.pytest_cache/
 .phase*-backup-*/
 *-report.txt
+
+.vscode/
+
+.private_phase4/
+
+.phase4-install-backup-*/
