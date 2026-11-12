@@ -1,0 +1,31 @@
+# SELF-HOSTING ON THIS PC with a fixed public HTTPS address (for example Tailscale Funnel).
+# Use together with compose.phase5-app.yml through scripts/selfhost.ps1.
+# Runs the app in production mode: secure cookies and malware scanning of uploads.
+# The site is reachable only while this PC, Docker Desktop and the tunnel are running.
+services:
+  api:
+    environment:
+      APP_ENV: production
+      CORS_ORIGINS: ${PUBLIC_URL:-http://127.0.0.1:13080}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
+    depends_on:
+      - clamav
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: same-origin
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:13080:80"
+    volumes:
+      - ./deploy/Caddyfile.tunnel:/etc/caddy/Caddyfile:ro
+  clamav:
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    volumes:
+      - clamav_db:/var/lib/clamav
+volumes:
+  clamav_db:
