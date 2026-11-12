@@ -1,0 +1,49 @@
+name: imhire_phase5_app
+# Local deployment rehearsal only. Uses EXTERNAL PostgreSQL and Redis URLs.
+# Does NOT create or modify Docker database volumes.
+services:
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.phase5
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in your private environment file}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL in your private environment file}
+      CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      PYTHONUNBUFFERED: "1"
+      PHASE4_PRIVATE_DIR: /app/private_uploads
+    ports:
+      - "127.0.0.1:18000:8000"
+    volumes:
+      - resume_private_data:/app/private_uploads
+  worker:
+    profiles: ["worker"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.phase5
+    restart: unless-stopped
+    command: ["python", "-m", "app.phase4_ai.worker"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL}
+      PYTHONUNBUFFERED: "1"
+      PHASE4_PRIVATE_DIR: /app/private_uploads
+    volumes:
+      - resume_private_data:/app/private_uploads
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.phase5
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:13000:3000"
+    depends_on:
+      - api
+volumes:
+  resume_private_data:

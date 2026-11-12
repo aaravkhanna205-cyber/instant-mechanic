@@ -1,0 +1,13 @@
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 HF_HOME=/app/.hf-cache
+WORKDIR /app
+RUN addgroup --system app && adduser --system --ingroup app app
+COPY requirements*.txt ./
+RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
+RUN for f in requirements.txt requirements-phase3-auth.txt requirements-phase3-completion.txt requirements-phase4-complete.txt; do if [ -f "$f" ]; then pip install -r "$f" || exit 1; fi; done
+COPY . .
+RUN mkdir -p /app/private_uploads /app/.hf-cache && chown -R app:app /app
+USER app
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=8s --start-period=60s --retries=3 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)" || exit 1
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

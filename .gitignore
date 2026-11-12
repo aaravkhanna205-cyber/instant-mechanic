@@ -47,3 +47,7 @@ backend/.env
 .private_phase4/
 
 .phase4-install-backup-*/
+
+.env.phase5.local
+
+**/.env.phase5.local

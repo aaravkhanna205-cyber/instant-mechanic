@@ -1,0 +1,62 @@
+name: Phase 5 quality checks
+on:
+  push:
+    branches: [main, phase5-production-deployment]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password_only
+          POSTGRES_DB: imhire_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci_user -d imhire_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: python -m pip install --upgrade pip
+      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-phase3-auth.txt -r requirements-phase3-completion.txt -r requirements-phase4-complete.txt
+      - name: Test backend
+        env:
+          DATABASE_URL: postgresql+psycopg://ci_user:ci_password_only@localhost:5432/imhire_ci
+          REDIS_URL: redis://localhost:6379/0
+        run: python -m pytest -q
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+  # No automatic production deployment: requires human approval and real secrets review.
