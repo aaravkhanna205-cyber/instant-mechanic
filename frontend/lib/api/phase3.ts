@@ -1,5 +1,7 @@
 /** Typed client for the FastAPI backend. Every call sends the session cookie. */
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+// "same-origin" means the API is served from the same address as this site (behind a proxy).
+const configuredApiUrl = process.env.NEXT_PUBLIC_API_URL;
+export const API_URL = configuredApiUrl === "same-origin" ? "" : (configuredApiUrl || "http://127.0.0.1:8000");
 
 export type Membership = { organization_id: string; role: string };
 export type Account = { id: string; email: string; full_name: string; is_platform_admin: boolean; memberships: Membership[] };

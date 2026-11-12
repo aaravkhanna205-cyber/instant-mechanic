@@ -1,0 +1,23 @@
+# FREE PUBLIC DEMO LINK. Use together with compose.phase5-app.yml through
+# scripts/demo-tunnel.ps1. It puts the app containers running on this PC behind a
+# temporary https://....trycloudflare.com address.
+# Demo only: the link dies when the PC or Docker stops, and changes on every start.
+services:
+  api:
+    environment:
+      CORS_ORIGINS: ${TUNNEL_URL:-http://127.0.0.1:13000}
+  web:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: same-origin
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    volumes:
+      - ./deploy/Caddyfile.tunnel:/etc/caddy/Caddyfile:ro
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: "no"
+    command: tunnel --no-autoupdate --url http://proxy:80 ${TUNNEL_ARGS:-}
+    depends_on:
+      - proxy

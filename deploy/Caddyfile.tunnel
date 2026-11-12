@@ -1,0 +1,21 @@
+# Plain-HTTP router used behind the free Cloudflare demo tunnel.
+# The tunnel provides HTTPS; this only sends /api/* to FastAPI and the rest to Next.js.
+:80 {
+	request_body {
+		max_size 10MB
+	}
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
