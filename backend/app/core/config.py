@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     database_url: str = ""
     redis_url: str = ""
     cors_origins: str = "http://127.0.0.1:3000,http://localhost:3000"
+    # Optional local AI (Ollama) for drafting interview questions. Empty = rule-based drafts only.
+    ollama_url: str = ""
+    ollama_model: str = "llama3.2:3b"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

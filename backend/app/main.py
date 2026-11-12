@@ -37,3 +37,6 @@ app.include_router(privacy_admin_router)
 from app.phase4_ai.api import router as phase4_router
 app.include_router(phase4_router)
 
+# Interview Studio: scheduling, approved question sets, candidate session, review report
+from app.interview_studio.api import router as interview_studio_router
+app.include_router(interview_studio_router)

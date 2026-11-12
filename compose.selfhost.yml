@@ -9,6 +9,10 @@ services:
       CORS_ORIGINS: ${PUBLIC_URL:-http://127.0.0.1:13080}
       CLAMAV_HOST: clamav
       CLAMAV_PORT: "3310"
+      # Optional local AI for interview question drafts (Ollama running on this PC).
+      # If Ollama is not installed, drafts quietly use the built-in rules instead.
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
     depends_on:
       - clamav
   web:

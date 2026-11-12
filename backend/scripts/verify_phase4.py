@@ -9,7 +9,7 @@ def main():
         required={'phase4_documents','phase4_chunks','phase4_reviews'}
         extension=conn.execute(text("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='vector')")).scalar_one()
     print('Revision:',revision,'Phase 4 tables:',len(required & tables),'/',len(required),'pgvector:',extension)
-    if revision!='0004_phase4_ai' or not required.issubset(tables) or not extension:
+    if revision not in ('0004_phase4_ai','0005_interview_studio') or not required.issubset(tables) or not extension:
         raise SystemExit('PHASE 4 SCHEMA NOT READY')
     print('PHASE 4 SCHEMA READY')
 if __name__=='__main__':main()

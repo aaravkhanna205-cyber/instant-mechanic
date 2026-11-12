@@ -6,7 +6,8 @@ from app.models.categories import OFFICIAL_ROLES
 
 
 def test_original_recruitment_tables():
-    assert len(Base.metadata.tables) == 16
+    # The Interview Studio adds three tables of its own; the original schema stays at 16.
+    assert len(set(Base.metadata.tables) - {"interview_questions", "interview_answers", "interview_reports"}) == 16
     assert len(OFFICIAL_ROLES) == 11
 
 

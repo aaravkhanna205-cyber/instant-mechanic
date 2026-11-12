@@ -154,7 +154,19 @@ class Interview(Base):
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="scheduled", server_default="scheduled")
     meeting_url: Mapped[str | None] = mapped_column(String(500))
-    __table_args__ = (CheckConstraint("status IN ('scheduled','in_progress','completed','cancelled','no_show')", name="interview_status"),)
+    # Interview Studio: scheduling details, candidate reply and session progress.
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata", server_default="Asia/Kolkata")
+    duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default="30")
+    candidate_response: Mapped[str] = mapped_column(String(20), nullable=False, default="pending", server_default="pending")
+    candidate_note: Mapped[str | None] = mapped_column(Text)
+    session_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    session_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("status IN ('scheduled','in_progress','completed','cancelled','no_show')", name="interview_status"),
+        CheckConstraint("candidate_response IN ('pending','confirmed','declined')", name="interview_candidate_response"),
+        CheckConstraint("duration_minutes BETWEEN 10 AND 240", name="interview_duration"),
+    )
 
 
 class InterviewFeedback(Base):
