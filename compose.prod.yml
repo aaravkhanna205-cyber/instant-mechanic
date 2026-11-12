@@ -1,0 +1,139 @@
+name: imhire_prod
+# Production stack for ONE Linux server. Only Caddy is reachable from the internet
+# (ports 80/443). PostgreSQL, Redis and ClamAV are private to the Docker network.
+# Start with:  bash scripts/prod-deploy.sh      (reads .env.prod)
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-backend-env: &backend-env
+  APP_ENV: production
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?Set POSTGRES_USER in .env.prod}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.prod}@postgres:5432/${POSTGRES_DB:?Set POSTGRES_DB in .env.prod}
+  REDIS_URL: redis://redis:6379/0
+  CORS_ORIGINS: https://${DOMAIN:?Set DOMAIN in .env.prod}
+  PHASE4_PRIVATE_DIR: /app/private_uploads
+  CLAMAV_HOST: clamav
+  CLAMAV_PORT: "3310"
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  RESET_URL_BASE: ${RESET_URL_BASE:-}
+  PYTHONUNBUFFERED: "1"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env.prod}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env.prod}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    logging: *logging
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.prod}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.prod}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    logging: *logging
+
+  clamav:
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    volumes:
+      - clamav_db:/var/lib/clamav
+    logging: *logging
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.phase5
+    restart: unless-stopped
+    environment: *backend-env
+    volumes:
+      - resume_private_data:/app/private_uploads
+      - hf_cache:/app/.hf-cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clamav:
+        condition: service_started
+    logging: *logging
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.phase5
+    restart: unless-stopped
+    command: ["python", "-m", "app.phase4_ai.worker"]
+    environment: *backend-env
+    volumes:
+      - resume_private_data:/app/private_uploads
+      - hf_cache:/app/.hf-cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging: *logging
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.phase5
+      args:
+        NEXT_PUBLIC_API_URL: https://${DOMAIN:?Set DOMAIN in .env.prod}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - api
+    logging: *logging
+
+volumes:
+  postgres_data:
+  redis_data:
+  clamav_db:
+  resume_private_data:
+  hf_cache:
+  caddy_data:
+  caddy_config:

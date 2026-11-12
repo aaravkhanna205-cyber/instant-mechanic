@@ -1,0 +1,31 @@
+# Caddy obtains and renews the HTTPS certificate automatically and redirects
+# http:// to https://. DOMAIN and ACME_EMAIL come from .env.prod.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode gzip
+
+	# Uploads are limited to 8 MB by the API; reject anything much larger early.
+	request_body {
+		max_size 10MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Only /api/* reaches FastAPI. Its /docs and /openapi.json stay private.
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

@@ -18,6 +18,7 @@ from app.security.dependencies import get_db, get_redis, get_current_user, requi
 from app.api.recruitment import require_csrf
 from app.phase4_ai.documents import validate_file, InvalidResume, interview_prompts, MAX_BYTES
 from app.phase4_ai.storage import save_bytes, path_for
+from app.phase4_ai.scanner import scan_bytes, scanner_configured, InfectedFile, ScanUnavailable
 from app.phase4_ai.worker import QUEUE
 from app.phase4_ai.vectors import embed
 from app.core.config import settings
@@ -47,12 +48,18 @@ def candidate_profile(db,user):
 async def upload_resume(request:Request, file:UploadFile=File(...), consent:bool=Form(...),
                         _:None=Depends(require_csrf),user:User=Depends(get_current_user),
                         db:Session=Depends(get_db),cache:Redis=Depends(get_redis)):
-    if settings.app_env.lower() in ('prod','production'):
-        raise HTTPException(503,'Production uploads require a configured malware scanner and private object storage')
+    if settings.app_env.lower() in ('prod','production') and not scanner_configured():
+        raise HTTPException(503,'Production uploads require a configured malware scanner')
     if not consent: raise HTTPException(422,'Candidate consent required for resume processing')
     data=await file.read(MAX_BYTES+1)
     try: mime=validate_file(file.filename or '',data)
     except InvalidResume as e: raise HTTPException(422,str(e)) from e
+    # Scan before anything is written to disk. Any scanner problem rejects the upload.
+    try: scan_bytes(data)
+    except InfectedFile as e: raise HTTPException(422,'File rejected by malware scan') from e
+    except ScanUnavailable as e:
+        log.error('Malware scanner unavailable; upload refused')
+        raise HTTPException(503,'Malware scanner unavailable; try again later') from e
     if Path(file.filename).suffix.lower() not in ('.pdf','.docx'):
         raise HTTPException(422,'Invalid format')
     # Prevent platform administrators from uploading on behalf of other people implicitly.
