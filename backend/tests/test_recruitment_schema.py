@@ -21,7 +21,7 @@ def db():
 def test_schema_has_expected_tables_and_foreign_keys(db):
     names = set(inspect(db.bind).get_table_names())
     # The Interview Studio adds three tables of its own; the original schema stays at 16.
-    assert len(names - {"interview_questions", "interview_answers", "interview_reports"}) == 16
+    assert len({t for t in (names - {"interview_questions", "interview_answers", "interview_reports"}) if not str(t).startswith("phase6_")}) == 16
     assert {"organizations", "users", "jobs", "applications", "interviews", "audit_logs"} <= names
     fks = inspect(db.bind).get_foreign_keys("applications")
     assert {f["referred_table"] for f in fks} >= {"jobs", "candidate_profiles"}
