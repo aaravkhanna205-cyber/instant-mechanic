@@ -79,7 +79,7 @@ export default function Phase6Page() {
         <div><div className="text-xs font-bold uppercase tracking-[.25em] text-amber-700">Instant Mechanic Hire</div>
         <h1 className="text-2xl font-bold md:text-3xl">AI Recruitment Automation</h1>
         <p className="text-sm text-stone-600">Phase 6 | Human-approved agent workflows</p></div>
-        <a href="/phase3" className="rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold">Recruitment Dashboard</a>
+        <a href="/phase6/tracking" className="rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold">Email Tracking</a><a href="/phase3" className="rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold">Recruitment Dashboard</a>
       </div>
     </header>
     <div className="mx-auto max-w-6xl space-y-5 px-4 py-7 md:px-10">

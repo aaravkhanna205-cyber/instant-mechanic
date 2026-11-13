@@ -19,7 +19,7 @@ from .policy import safe_recipient
 
 log=logging.getLogger('phase6.worker')
 
-def deliver(recipient:str, subject:str, message:str, mode:str)->tuple[str,str|None]:
+def deliver(recipient:str, subject:str, message:str, mode:str, html_body:str|None=None)->tuple[str,str|None]:
     """Outbox mode is a rehearsal, NOT an email delivery."""
     if not safe_recipient(recipient):raise ValueError('Invalid destination address')
     if mode=='outbox':return 'outbox','stored in database only; nothing sent'
@@ -35,6 +35,8 @@ def deliver(recipient:str, subject:str, message:str, mode:str)->tuple[str,str|No
     msg=EmailMessage()
     msg['From']=sender;msg['To']=recipient;msg['Subject']=subject[:180]
     msg.set_content(message)
+    if html_body:
+        msg.add_alternative(html_body, subtype='html')
     if port==465:
         with smtplib.SMTP_SSL(host,port,timeout=15,context=ssl.create_default_context()) as smtp:
             smtp.login(username,password);smtp.send_message(msg)
@@ -63,7 +65,14 @@ def process_one(db:Session,mode='outbox')->bool:
     # Claim before making any outside network request.
     row.state='processing';row.attempts+=1;db.commit()
     try:
-        status,detail=deliver(user.email,row.title,row.draft,mode)
+        html_body = None
+        if mode == 'smtp':
+            from .tracking import prepare, render_html
+            links = prepare(db, row)
+            if links is not None:
+                db.commit()  # Persist tokens before contacting SMTP.
+                html_body = render_html(row.draft, links)
+        status,detail=deliver(user.email,row.title,row.draft,mode,html_body=html_body)
         row=db.get(AgentProposal,row.id)
         row.state='delivered' if status=='smtp_accepted' else 'outbox';row.last_error=None
         db.add(AgentDelivery(proposal_id=row.id,organization_id=row.organization_id,recipient_email=user.email,mode=mode,status=status,reference=detail))

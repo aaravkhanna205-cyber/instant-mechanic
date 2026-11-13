@@ -130,3 +130,35 @@ def interview_assistant(organization_id:UUID,interview_id:UUID,_:User=Depends(re
     questions=[f'Give a specific example of how you demonstrated {label}. What was the result?' for label in labels]
     if not questions:questions=['Describe a relevant project and your individual responsibilities.','How would you approach an unfamiliar issue in this role?']
     return {'interview_id':str(row.id),'job':job.title,'questions':questions,'score_guidance':'Use documented evidence and structured human judgment. No automatic candidate scoring.'}
+
+
+# Public endpoints intentionally use token authentication, not the user's browser session.
+# Token is opaque and 256-bit random; unauthenticated clients cannot query reports.
+@router.get('/track/o/{token}.gif', include_in_schema=False)
+def tracking_open(organization_id: UUID, token: str, db: Session = Depends(get_db)):
+    from fastapi.responses import Response
+    from .tracking import PIXEL, observe
+    observe(db, organization_id, token, 'open')
+    return Response(PIXEL, media_type='image/gif', headers={
+        'Cache-Control':'no-store, no-cache, must-revalidate', 'Pragma':'no-cache',
+        'Referrer-Policy':'no-referrer', 'X-Content-Type-Options':'nosniff'})
+
+@router.get('/track/c/{token}', include_in_schema=False)
+def tracking_click(organization_id: UUID, token: str, db: Session = Depends(get_db)):
+    from fastapi.responses import RedirectResponse
+    from .tracking import observe, destination
+    observe(db, organization_id, token, 'click')
+    return RedirectResponse(destination(db, organization_id, token), status_code=302, headers={
+        'Cache-Control':'no-store, no-cache', 'Referrer-Policy':'no-referrer'})
+
+@router.get('/tracking')
+def tracking_report(organization_id: UUID, _: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
+    from .models import AgentTracking
+    rows = db.scalars(select(AgentTracking).where(
+        AgentTracking.organization_id == organization_id
+    ).order_by(AgentTracking.created_at.desc()).limit(500)).all()
+    return {'disclaimer':'Observed image requests/click requests; not proof of human reading or engagement',
+            'records':[{'proposal_id':str(t.proposal_id),'kind':t.kind,
+                        'requests':t.count,'first_seen_at':t.first_seen_at.isoformat() if t.first_seen_at else None,
+                        'last_seen_at':t.last_seen_at.isoformat() if t.last_seen_at else None}
+                       for t in rows]}
