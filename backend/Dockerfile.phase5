@@ -4,7 +4,7 @@ WORKDIR /app
 RUN addgroup --system app && adduser --system --ingroup app app
 COPY requirements*.txt ./
 RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
-RUN for f in requirements.txt requirements-phase3-auth.txt requirements-phase3-completion.txt requirements-phase4-complete.txt; do if [ -f "$f" ]; then pip install -r "$f" || exit 1; fi; done
+RUN for f in requirements.txt requirements-phase3-auth.txt requirements-phase3-completion.txt requirements-phase4-complete.txt requirements-phase6.txt; do if [ -f "$f" ]; then pip install -r "$f" || exit 1; fi; done
 COPY . .
 RUN mkdir -p /app/private_uploads /app/.hf-cache && chown -R app:app /app
 USER app
