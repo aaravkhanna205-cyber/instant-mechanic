@@ -1,0 +1,4 @@
+# Uses the existing Phase 3 dependencies (FastAPI, SQLAlchemy, Redis, Alembic).
+# LangGraph is open source; no paid LLM key is required for the deterministic graph.
+langgraph>=0.2,<2
+python-dotenv>=1,<2

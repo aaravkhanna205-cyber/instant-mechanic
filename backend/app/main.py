@@ -40,3 +40,7 @@ app.include_router(phase4_router)
 # Interview Studio: scheduling, approved question sets, candidate session, review report
 from app.interview_studio.api import router as interview_studio_router
 app.include_router(interview_studio_router)
+
+# Phase 6: authenticated automation endpoints
+from app.phase6_agents.api import router as phase6_router
+app.include_router(phase6_router)
