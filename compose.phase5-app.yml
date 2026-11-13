@@ -45,5 +45,38 @@ services:
       - "127.0.0.1:13000:3000"
     depends_on:
       - api
+  p6-scheduler:
+    profiles: ["worker"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.phase5
+    restart: unless-stopped
+    command: ["python", "-m", "app.phase6_agents.scheduler"]
+    healthcheck:
+      disable: true
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL}
+      PYTHONUNBUFFERED: "1"
+  p6-worker:
+    profiles: ["worker"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.phase5
+    restart: unless-stopped
+    command: ["python", "-m", "app.phase6_agents.worker"]
+    healthcheck:
+      disable: true
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL}
+      PYTHONUNBUFFERED: "1"
+      PHASE6_DELIVERY_MODE: ${PHASE6_DELIVERY_MODE:-outbox}
+      PHASE6_SMTP_ENABLED: ${PHASE6_SMTP_ENABLED:-NO}
+      PHASE6_SMTP_HOST: ${PHASE6_SMTP_HOST:-}
+      PHASE6_SMTP_PORT: ${PHASE6_SMTP_PORT:-587}
+      PHASE6_SMTP_USER: ${PHASE6_SMTP_USER:-}
+      PHASE6_SMTP_PASSWORD: ${PHASE6_SMTP_PASSWORD:-}
+      PHASE6_SMTP_FROM: ${PHASE6_SMTP_FROM:-}
 volumes:
   resume_private_data:
