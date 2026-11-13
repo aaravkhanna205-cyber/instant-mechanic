@@ -25,6 +25,8 @@ services:
       dockerfile: Dockerfile.phase5
     restart: unless-stopped
     command: ["python", "-m", "app.phase4_ai.worker"]
+    healthcheck:
+      disable: true
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
       REDIS_URL: ${REDIS_URL:?Set REDIS_URL}
