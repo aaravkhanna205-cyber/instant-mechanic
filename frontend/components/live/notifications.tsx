@@ -95,8 +95,8 @@ function EmailLogTab() {
     <div className="stack">
       <Notice>
         Candidates get an email when they apply, when their stage changes and when an interview is scheduled, moved or cancelled.
-        In <strong>outbox</strong> mode emails are only stored here and nothing is sent. To really send, set PHASE6_DELIVERY_MODE=smtp
-        with your email account details, the same setting the agent messages use.
+        In <strong>outbox</strong> mode emails are only stored here and nothing is sent. To really send them from Gmail, run
+        <code>scripts\email-setup.ps1</code> on the server PC once (see docs/GMAIL-SETUP.md).
       </Notice>
       <div className="toolbar !mb-0">
         <select aria-label="Email status" className="control" value={status} onChange={(event) => setStatus(event.target.value)}>

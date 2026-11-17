@@ -4,6 +4,7 @@
 #   Verify:  powershell -ExecutionPolicy Bypass -File .\scripts\selfhost.ps1 -Verify
 #   Backup:  powershell -ExecutionPolicy Bypass -File .\scripts\selfhost.ps1 -Backup
 #   Stop:    powershell -ExecutionPolicy Bypass -File .\scripts\selfhost.ps1 -Stop
+#   Automatic start and daily backup: .\scripts\windows-tasks.ps1 -Install   (Phase 8)
 param([string]$PublicUrl = '', [switch]$Verify, [switch]$Backup, [switch]$Stop)
 $ErrorActionPreference = 'Stop'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
@@ -55,7 +56,10 @@ if ($Backup) {
   if ($LASTEXITCODE -ne 0) { throw 'The backup file could not be read back.' }
   & docker run --rm -v 'imhire_phase5_app_resume_private_data:/data:ro' -v "${dir}:/backup" alpine tar czf "/backup/resumes-$stamp.tar.gz" -C /data .
   if ($LASTEXITCODE -ne 0) { throw 'Resume backup failed.' }
-  Get-ChildItem $dir -File | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-14) } | Remove-Item -Force
+  # Keep the newest 14 of each kind (so a long break never deletes every backup).
+  foreach ($pattern in @('db-*.dump', 'resumes-*.tar.gz')) {
+    Get-ChildItem $dir -File -Filter $pattern | Sort-Object LastWriteTime -Descending | Select-Object -Skip 14 | Remove-Item -Force
+  }
   Write-Host "Backup written and read back: $dir\db-$stamp.dump and resumes-$stamp.tar.gz" -ForegroundColor Green
   Write-Host 'Copy this folder to another disk or drive regularly.' -ForegroundColor Yellow
   exit 0
@@ -95,6 +99,15 @@ if ($Verify) {
   $recent = Get-ChildItem (Join-Path $HOME 'imhire-backups') -Filter 'db-*.dump' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-2) }
   if ($recent) { Write-Host 'PASS  Backup from the last 2 days exists' -ForegroundColor Green }
   else { Write-Host 'WARN  No recent backup. Run this script with -Backup' -ForegroundColor Yellow }
+  $head = (& docker @dc exec -T api python -m alembic current 2>$null | Out-String)
+  Check 'Database has the Phase 8 update (0012)' ($head -match '0012_phase8_server_errors') $true
+  $settings = @{}
+  foreach ($line in Get-Content '.env.phase5.local') { if ($line -match '^([A-Z0-9_]+)=(.*)$') { $settings[$Matches[1]] = $Matches[2].Trim() } }
+  if ($settings['PHASE6_DELIVERY_MODE'] -eq 'smtp' -and $settings['PHASE6_SMTP_ENABLED'] -eq 'YES') {
+    Write-Host "INFO  Real emails are ON (sent from $($settings['PHASE6_SMTP_FROM']))" -ForegroundColor Green
+  } else {
+    Write-Host 'INFO  Emails are in outbox mode (stored, not sent). To send from Gmail: .\scripts\email-setup.ps1' -ForegroundColor Yellow
+  }
   Write-Host ''
   if ($script:failures -eq 0) {
     Write-Host 'ALL AUTOMATED CHECKS PASSED' -ForegroundColor Green

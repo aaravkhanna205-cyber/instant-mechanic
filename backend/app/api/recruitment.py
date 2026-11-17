@@ -2,6 +2,7 @@
 
 No user-supplied organization or actor IDs are trusted for authorization.
 """
+import os
 from datetime import datetime
 from uuid import UUID
 import hmac
@@ -243,6 +244,19 @@ def upsert_candidate(body: CandidateInput, _: None = Depends(require_csrf),
     return {"id": str(profile.id), "city": profile.city, "skills": profile.skills}
 
 
+def resume_required() -> bool:
+    """Phase 8: candidates apply with a resume. REQUIRE_RESUME_TO_APPLY=NO switches the rule off."""
+    return os.getenv("REQUIRE_RESUME_TO_APPLY", "YES").strip().upper() != "NO"
+
+
+def has_usable_resume(db: Session, user_id: UUID) -> bool:
+    """A consented resume that is being read or is ready. A failed upload does not count."""
+    from sqlalchemy import bindparam, text, Uuid
+    query = text("SELECT 1 FROM phase4_documents WHERE user_id = :u AND consented = true "
+                 "AND status IN ('queued', 'ready') LIMIT 1").bindparams(bindparam("u", type_=Uuid()))
+    return db.execute(query, {"u": user_id}).first() is not None
+
+
 @router.post("/jobs/{job_id}/apply", status_code=201)
 def apply(job_id: UUID, _: None = Depends(require_csrf), user: User = Depends(get_current_user),
           db: Session = Depends(get_db)):
@@ -255,6 +269,8 @@ def apply(job_id: UUID, _: None = Depends(require_csrf), user: User = Depends(ge
         db.add(profile); db.flush()
     if db.scalar(select(Application.id).where(Application.job_id == job_id, Application.candidate_id == profile.id)):
         raise HTTPException(409, "Already applied")
+    if resume_required() and not has_usable_resume(db, user.id):
+        raise HTTPException(422, "Please upload your resume first, then apply.")
     application = Application(job_id=job_id, candidate_id=profile.id)
     db.add(application); db.flush()
     db.add(ApplicationStageHistory(application_id=application.id, changed_by_id=user.id, new_stage="applied"))

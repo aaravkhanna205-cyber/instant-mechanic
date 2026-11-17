@@ -14,6 +14,8 @@ services:
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       PYTHONUNBUFFERED: "1"
       PHASE4_PRIVATE_DIR: /app/private_uploads
+      # Phase 8: candidates must upload a resume before applying (set NO to switch off).
+      REQUIRE_RESUME_TO_APPLY: ${REQUIRE_RESUME_TO_APPLY:-YES}
     ports:
       - "127.0.0.1:18000:8000"
     volumes:

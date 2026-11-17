@@ -17,6 +17,11 @@ app.add_middleware(
 )
 app.include_router(system_router)
 
+# Phase 8: record server errors (5xx) for System health. Uses the normal DB session factory lazily.
+from app.phase8.monitoring import install as install_error_monitor
+from app.security.dependencies import session_factory as _session_factory
+install_error_monitor(app, _session_factory)
+
 from app.api.auth import router as auth_router
 app.include_router(auth_router)
 

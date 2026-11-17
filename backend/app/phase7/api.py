@@ -283,6 +283,9 @@ def retention_apply(body: RetentionApply, _: None = Depends(require_csrf), actor
     return {'erased': len(ids)}
 
 
+from app.phase8.monitoring import summary as server_error_summary  # noqa: E402
+
+
 @admin.get('/health')
 def health(_: User = Depends(require_platform_admin), db: Session = Depends(get_db), cache: Redis = Depends(get_redis)):
     def count(sql: str) -> int | None:
@@ -311,6 +314,7 @@ def health(_: User = Depends(require_platform_admin), db: Session = Depends(get_
         'agent_messages_queued': count("SELECT count(*) FROM phase6_proposals WHERE state = 'queued'"),
         'workflows_failed': count("SELECT count(*) FROM phase6_workflow_runs WHERE status = 'failed'"),
         'deletion_requests_pending': count("SELECT count(*) FROM data_deletion_requests WHERE status = 'pending'"),
+        'server_errors': server_error_summary(db),
         'checked_at': datetime.now(timezone.utc).isoformat(),
     }
 

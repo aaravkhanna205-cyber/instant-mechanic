@@ -2,6 +2,7 @@ name: imhire_phase3fresh
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    restart: unless-stopped  # Phase 8: come back by itself after the PC restarts
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?Missing POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Missing POSTGRES_PASSWORD}
@@ -17,6 +18,7 @@ services:
       retries: 15
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "127.0.0.1:56380:6379"

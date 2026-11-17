@@ -2,7 +2,7 @@
 import { useCallback, useState } from "react";
 import {
   encoded, ROLE_LABELS, type AdminDeletionRequest, type AdminUser, type AppSetting, type AuditEntry, type Health, type Member,
-  type RetentionPreview,
+  type RetentionPreview, type ServerErrorSummary,
 } from "@/lib/api/phase3";
 import { useAction, useLoad } from "@/lib/live/hooks";
 import { useLive } from "@/lib/live/session";
@@ -442,7 +442,43 @@ function HealthTab() {
         </table>
       </div>
       <p className="text-muted text-xs">&ldquo;Worker busy right now&rdquo; is only Yes for the few seconds the worker is processing; No is normal.</p>
+      <ServerErrors errors={data.server_errors} />
     </div>
+  );
+}
+
+function ServerErrors({ errors }: { errors?: ServerErrorSummary }) {
+  if (!errors || !errors.available) {
+    return <Notice>Server error log is not set up yet. Run the database update (migration 0012) to switch it on.</Notice>;
+  }
+  return (
+    <section className="panel p-5 stack">
+      <div className="flex flex-wrap justify-between items-center gap-3">
+        <h2 className="section-title">Server errors</h2>
+        <span className="flex gap-2">
+          <Pill value={`Last 24 hours: ${errors.last_24h}`} tone={errors.last_24h ? "red" : "green"} />
+          <Pill value={`Last 7 days: ${errors.last_7d}`} tone={errors.last_7d ? "amber" : "green"} />
+        </span>
+      </div>
+      {errors.top.length === 0 ? <p className="text-muted">No server errors in the last 7 days.</p> : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>Page or action</th><th>Error</th><th>Times</th><th>Last seen</th></tr></thead>
+            <tbody>
+              {errors.top.map((row) => (
+                <tr key={`${row.method}${row.path}${row.error_type}`}>
+                  <td className="wrap"><code>{row.method} {row.path}</code></td>
+                  <td>{row.error_type}</td>
+                  <td><strong>{row.count}</strong></td>
+                  <td>{row.last_seen ? formatDateTime(row.last_seen) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="text-muted text-xs">Only the page address and the error type are kept (30 days), never what anyone typed. If one keeps repeating, send this list to whoever maintains the site.</p>
+    </section>
   );
 }
 

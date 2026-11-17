@@ -1,56 +1,69 @@
-# Instant Mechanic Hire — single-workspace monorepo
+# Instant Mechanic Hire
 
-Internal recruitment software for Instant Mechanic. **One ZIP and one VS Code workspace for every phase.**
+Instant Mechanic's own hiring platform: candidates apply with a resume, the HR manager and hiring manager
+review, shortlist, interview and decide, and every candidate is kept informed by email and in their portal.
+It runs **free, on one Windows PC**, with a public HTTPS address through Tailscale Funnel. No cloud account is needed.
 
-## Current implementation status
+Yellow / orange / white design. Works on phones (candidates) and desktops (staff).
 
-- **Phase 0:** Workspace, repo structure, scripts, environment templates and local service configuration are included. Existing frontend audited at a structural level; full automated checks remain to be run locally.
-- **Phase 1:** Next.js frontend starter with recruiter dashboard, demo data, rebrand theme, auth UI and preview navigation included. **Verify lint, typecheck, build and browser responsiveness locally.**
-- **Phases 2–8:** Folder structure, project plans, API skeleton and service configuration have been prepared. **Feature implementation, security review and production deployment are NOT finished.** The future features are not claimed to work yet.
+## Who does what
 
-## Requirements
+| Person | Role in the app | What they can do |
+|---|---|---|
+| Super Admin | Platform admin | Everything, for every organization: people, roles, data retention, system health, settings |
+| Neeraj | HR manager | Full access: jobs, candidates, interviews, decisions, team, candidate emails, reports, exports |
+| Aarav Khanna | Hiring manager | Full access: interviews, shortlisting, hiring decisions, team, reports, exports |
+| Recruiter (optional) | Recruiter | Jobs, candidates, interviews, AI agents; cannot manage the team |
+| Interviewer (optional) | Interviewer | Assigned interviews and feedback |
+| Applicants | Candidate | Candidate portal: upload resume, apply, follow progress, answer interview invitations |
 
-Node.js 20.9+, npm, Python 3.11+, Git. Docker Desktop is optional for Phase 1, required for the local PostgreSQL/Redis environment in Phase 3.
+## What is inside
 
-## Start Phase 1 (Windows PowerShell)
+- **Candidate portal** - register, upload a resume (PDF or Word, scanned for viruses), apply, see each stage explained in plain words, confirm interviews, ask for data deletion.
+- **Staff workspace** - jobs, candidates, stage changes with notes and history, interview scheduling and feedback, Interview Studio, analytics, reports and CSV exports, team and roles, notifications.
+- **AI assistance (human-approved)** - resume reading and evidence, interview question drafts, four agent workflows (resume review, interview summary, job description, analytics). Nothing is decided automatically.
+- **Emails** - candidates get an email when they apply, change stage or get an interview. Sent from Gmail when switched on.
+- **Operations** - one-command start, health checks, server-error log, daily backups with restore test, automatic start after sign-in.
+
+## Quick start (the PC that hosts the site)
+
+Full steps: [docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md). Short version, in PowerShell in the project folder:
 
 ```powershell
-cd frontend
-npm install
-npm run lint
-npm run typecheck
-npm run build
-npm run dev
+.\scripts\selfhost.ps1 -PublicUrl https://YOUR-PC.YOUR-TAILNET.ts.net   # first time
+.\scripts\selfhost.ps1            # every later start
+.\scripts\selfhost.ps1 -Verify    # checks everything
+.\scripts\selfhost.ps1 -Backup    # backup now
+.\scripts\windows-tasks.ps1 -Install   # start by itself + daily backup
+.\scripts\email-setup.ps1         # send real emails from Gmail
 ```
 
-Open http://localhost:3000/dashboard. Authentication buttons are **UI preview only** until Phase 3. Later-phase menu items are intentionally labelled preview.
+## Documents
 
-## Work in this folder forever
+| Read this | For |
+|---|---|
+| [docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md) | Installing and running it on the Windows PC |
+| [docs/GMAIL-SETUP.md](docs/GMAIL-SETUP.md) | Switching on real emails from Gmail |
+| [docs/HR-MANAGER-GUIDE.md](docs/HR-MANAGER-GUIDE.md) | Neeraj: daily work, emails, reports, team |
+| [docs/HIRING-MANAGER-GUIDE.md](docs/HIRING-MANAGER-GUIDE.md) | Aarav: shortlisting, interviews, decisions |
+| [docs/CANDIDATE-GUIDE.md](docs/CANDIDATE-GUIDE.md) | Simple guide to share with applicants |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the parts fit together |
+| [docs/TESTING.md](docs/TESTING.md) | Automatic tests, browser tests, CI |
+| [docs/KNOWN-LIMITS.md](docs/KNOWN-LIMITS.md) | What it does not do (yet) |
+| [docs/CASE-STUDY.md](docs/CASE-STUDY.md) | Portfolio write-up of the project |
+| [docs/PHASE8-RELEASE.md](docs/PHASE8-RELEASE.md) | What Phase 8 added and how to upgrade |
 
-Return to the repository root after running frontend commands:
+Earlier phase notes stay in `docs/` (PHASE-3 to PHASE7) for history.
 
-```powershell
-cd ..
-git init
-git branch -M main
-git remote add origin https://github.com/aaravkhanna205-cyber/instant-mechanic.git
-git add .
-git commit -m "feat: initial monorepo and phase 1 frontend"
-git push -u origin main
+## Code layout
+
+```
+backend/    FastAPI + SQLAlchemy + Alembic (Python). Tests in backend/tests
+frontend/   Next.js website. Browser tests in frontend/e2e
+scripts/    PowerShell scripts for the Windows PC, secret scan
+deploy/     Caddy proxy settings
+compose.*.yml  Docker setups (database, app, self-hosting)
 ```
 
-Only use `git remote add` if `git remote -v` is empty. On future changes, use `git add .`, `git commit -m "..."`, `git push` in this *same* repo. No extra ZIP extraction.
-
-## Later-phase entry points
-
-- `backend/` — FastAPI skeleton; `pip install -r backend/requirements.txt`, then `uvicorn app.main:app --reload --app-dir backend` from repo root, or run `uvicorn app.main:app --reload` inside backend.
-- `docker-compose.yml` — planned local Postgres/pgvector and Redis; `docker compose up -d` when Phase 3 begins.
-- `.env.example`, `backend/.env.example`, `frontend/.env.example` — variable names only, no real passwords or access keys.
-- `docs/PHASES.md`, `docs/ARCHITECTURE.md` — full build sequence and acceptance gates.
-- `scripts/` — PowerShell helpers. Do not execute scripts with admin privileges.
-
-## Security & hiring principles
-
-No automated candidate rejection or hidden suitability scoring. Every send, booking and hiring decision requires human review. Resume content is untrusted data. Candidate uploads will be PDF/DOCX only, private, and access controlled. Do not store private candidate files or tokens in Git. Organization isolation and audit logs must be enforced in the backend when those capabilities are implemented.
-
-This is a development scaffold, **not** a completed production platform.
+Private settings live only on the PC in `.env.phase5.local` and `.phase3-fresh.env` and are never committed
+(`python scripts/secret_scan.py` checks this, also in CI).

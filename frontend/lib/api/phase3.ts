@@ -87,7 +87,11 @@ export type ReportSummary = {
   jobs: { job_id: string; title: string; status: string; applications: number; interviewed: number; offers: number; hired: number }[];
   activity: { name: string; stage_changes: number }[];
 };
-export type Health = Record<string, boolean | number | string | null>;
+export type ServerErrorSummary = {
+  available: boolean; last_24h: number | null; last_7d: number | null;
+  top: { method: string; path: string; error_type: string; count: number; last_seen: string | null }[];
+};
+export type Health = Record<string, boolean | number | string | null | ServerErrorSummary> & { server_errors?: ServerErrorSummary };
 export type RetentionPreview = {
   days: number; count: number;
   candidates: { user_id: string; full_name: string; email: string; applications: number; last_activity: string | null }[];

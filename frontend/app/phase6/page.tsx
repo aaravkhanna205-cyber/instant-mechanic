@@ -53,7 +53,11 @@ export default function Phase6Page() {
     } catch(e) {if(active)setError(e instanceof Error ? e.message : "Authentication required");}})();
     return () => {active=false};
   },[]);
-  useEffect(() => {if(org) void load(org)},[org,load]);
+  useEffect(() => {
+    if (!org) return;
+    const timer = setTimeout(() => void load(org), 0); // load after render; it only sets state once data arrives
+    return () => clearTimeout(timer);
+  },[org,load]);
   async function mutate(path:string, method:string, data:unknown) {
     if (!session || !org) return;
     setBusy(true);setError("");setSuccess("");

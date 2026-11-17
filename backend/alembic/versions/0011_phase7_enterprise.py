@@ -21,21 +21,26 @@ def _roles(roles: str) -> None:
 
 def upgrade():
     _roles("'owner','admin','hr_manager','hiring_manager','recruiter','interviewer','candidate'")
-    op.add_column('notifications', sa.Column('organization_id', sa.Uuid(),
-                                             sa.ForeignKey('organizations.id', ondelete='CASCADE'), nullable=True))
-    op.add_column('notifications', sa.Column('link', sa.String(300)))
-    op.add_column('notifications', sa.Column('email_status', sa.String(20)))
-    op.add_column('notifications', sa.Column('emailed_at', sa.DateTime(timezone=True)))
-    op.add_column('notifications', sa.Column('email_error', sa.String(300)))
-    op.create_index('ix_notifications_organization_id', 'notifications', ['organization_id'])
-    op.create_index('ix_notifications_email_status', 'notifications', ['email_status'])
-    op.create_index('ix_notifications_user_unread', 'notifications', ['user_id', 'read_at'])
-
+    # Migration 0001 builds tables from the current models, so a brand-new database already has
+    # these columns. Only add what is missing (keeps fresh installs and upgrades both working).
+    have = {c['name'] for c in sa.inspect(op.get_bind()).get_columns('notifications')}
+    columns = [
+        sa.Column('organization_id', sa.Uuid(), sa.ForeignKey('organizations.id', ondelete='CASCADE'), nullable=True),
+        sa.Column('link', sa.String(300)),
+        sa.Column('email_status', sa.String(20)),
+        sa.Column('emailed_at', sa.DateTime(timezone=True)),
+        sa.Column('email_error', sa.String(300)),
+    ]
+    for column in columns:
+        if column.name not in have:
+            op.add_column('notifications', column)
+    op.execute('CREATE INDEX IF NOT EXISTS ix_notifications_organization_id ON notifications (organization_id)')
+    op.execute('CREATE INDEX IF NOT EXISTS ix_notifications_email_status ON notifications (email_status)')
+    op.execute('CREATE INDEX IF NOT EXISTS ix_notifications_user_unread ON notifications (user_id, read_at)')
 
 def downgrade():
-    op.drop_index('ix_notifications_user_unread', 'notifications')
-    op.drop_index('ix_notifications_email_status', 'notifications')
-    op.drop_index('ix_notifications_organization_id', 'notifications')
+    for index in ('ix_notifications_user_unread', 'ix_notifications_email_status', 'ix_notifications_organization_id'):
+        op.execute(f'DROP INDEX IF EXISTS {index}')
     for column in ('email_error', 'emailed_at', 'email_status', 'link', 'organization_id'):
         op.drop_column('notifications', column)
     # Members with the new roles keep full access as organization admins.
