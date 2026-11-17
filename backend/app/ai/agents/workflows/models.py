@@ -18,7 +18,8 @@ class WorkflowRun(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=new_id)
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('organizations.id', ondelete='CASCADE'), nullable=False, index=True)
     workflow: Mapped[str] = mapped_column(String(40), nullable=False)
-    application_id: Mapped[uuid.UUID] = mapped_column(ForeignKey('applications.id', ondelete='CASCADE'), nullable=False, index=True)
+    # Set for resume and interview workflows; empty for job description and analytics runs.
+    application_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey('applications.id', ondelete='CASCADE'), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(24), nullable=False, default='running', server_default='running')
     # Name of the last step that finished. The next run continues after it.
     step: Mapped[str | None] = mapped_column(String(40))

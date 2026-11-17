@@ -1,4 +1,4 @@
-# Phase 6b: Agent workflows (Resume Review and Interview Summary)
+# Phase 6b: Agent workflows (all four agents)
 
 Workflow 1 of the roadmap: **new resume → Resume Analysis agent → evidence matrix → recruiter review**.
 Free: no paid AI key, no LLM. It reuses the resume text that Phase 4 already extracted.
@@ -24,6 +24,17 @@ Interview completed → Interview Summary agent → review draft → **human dec
 
 The agent never records the hiring decision (advance, hold or reject). Its own tools cannot read resumes.
 
+## Job Description agent
+Job → check wording → draft → **recruiter approval**.
+- Flags wording that can exclude people (age limits, "male only", "boys", "salesman", marital status, appearance) as **Fix**, and gaps (no salary, hours, responsibilities, location, vague or duplicate requirements) as **Improve**.
+- The draft only reorganises the current text; missing facts appear as `[placeholders]`. Nothing is invented.
+- The job changes only when a recruiter clicks **Approve and update job description**, and then only its description. Status, title and requirements are never changed; the agent never publishes or closes a job.
+
+## Recruitment Analytics agent
+Read-only, finishes immediately as `completed` (nothing to approve).
+- Counts for the chosen period (7 to 180 days) against the period before, open applications by stage, applications waiting 7+ days with no stage change, overdue interviews, published jobs with no applicants, and jobs that drove a change in volume.
+- Uses one read-only tool that returns counts for your organization only. No candidate names leave it.
+
 ## Safety built in
 | Roadmap item | How |
 |---|---|
@@ -41,11 +52,14 @@ The agent never records the hiring decision (advance, hold or reject). Its own t
 | `backend/app/ai/agents/workflows/tools.py` | Tools, allowlist, permission checks |
 | `backend/app/ai/agents/workflows/resume_review.py` | Resume Review steps and the shared checkpointed runner, resume, review, cancel |
 | `backend/app/ai/agents/workflows/interview_summary.py` | Interview Summary steps and start |
+| `backend/app/ai/agents/workflows/job_description.py`, `jd_quality.py` | Job Description agent and its checks and draft |
+| `backend/app/ai/agents/workflows/recruitment_analytics.py`, `analytics.py` | Recruitment Analytics agent and its findings |
 | `backend/app/ai/agents/workflows/models.py` | `phase6_workflow_runs` table |
 | `backend/app/ai/agents/workflows/api.py` | `/api/phase6/organizations/{id}/workflows/...` |
 | `backend/alembic/versions/0008_phase6_workflow_runs.py` | Migration: workflow runs table |
 | `backend/alembic/versions/0009_phase6_interview_summary.py` | Migration: allows the `waiting_interview` status |
-| `backend/tests/test_phase6b_workflows.py`, `test_phase6c_interview_summary.py` | 19 tests |
+| `backend/alembic/versions/0010_phase6_job_and_analytics_agents.py` | Migration: runs without an application |
+| `backend/tests/test_phase6b_workflows.py`, `test_phase6c_interview_summary.py`, `test_phase6d_job_and_analytics.py` | 29 tests |
 | `frontend/app/phase6/workflows/page.tsx` | The Agent workflows page (both workflows) |
 
 ## Note on LangGraph
@@ -54,10 +68,10 @@ The checkpoints are this project's own table rather than LangGraph's PostgreSQL 
 ## Apply and run (Windows PowerShell, from the project root)
 ```powershell
 cd backend
-python -m pytest -q tests/test_phase6b_workflows.py tests/test_phase6c_interview_summary.py
+python -m pytest -q tests/test_phase6b_workflows.py tests/test_phase6c_interview_summary.py tests/test_phase6d_job_and_analytics.py
 cd ..
 .\scripts\selfhost.ps1
 docker exec imhire_phase5_app-api-1 python -m alembic upgrade head
 docker exec imhire_phase5_app-api-1 python -m alembic current
 ```
-`alembic current` must show `0009_phase6_interview_summary (head)`. Then open `/phase6/workflows`.
+`alembic current` must show `0010_phase6_job_analytics (head)`. Then open `/phase6/workflows`.

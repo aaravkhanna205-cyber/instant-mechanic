@@ -100,13 +100,14 @@ STEPS = [
 STEP_NAMES = [name for name, _ in STEPS]
 
 
-def definition(workflow: str) -> tuple[str, list]:
-    """(agent, steps) for a workflow. Read at run time, so every run uses the current step list."""
+def definition(workflow: str) -> tuple[str, list, bool]:
+    """(agent, steps, needs_review) for a workflow. Read at run time, so every run uses the current step list."""
     if workflow == WORKFLOW:
-        return AGENT, STEPS
-    if workflow == 'interview_summary':
-        from . import interview_summary
-        return interview_summary.AGENT, interview_summary.STEPS
+        return AGENT, STEPS, True
+    from . import interview_summary, job_description, recruitment_analytics
+    for module in (interview_summary, job_description, recruitment_analytics):
+        if workflow == module.WORKFLOW:
+            return module.AGENT, module.STEPS, getattr(module, 'NEEDS_REVIEW', True)
     raise WorkflowError(422, f'Unknown workflow: {workflow[:40]}')
 
 
@@ -121,7 +122,7 @@ def advance(db: Session, run: WorkflowRun, actor_id: UUID | None) -> WorkflowRun
     """Run every step after the last checkpoint. Saves after each step."""
     if run.status in ('completed', 'cancelled', 'waiting_review'):
         return run
-    _, steps = definition(run.workflow)
+    _, steps, needs_review = definition(run.workflow)
     names = [name for name, _ in steps]
     run.status = 'running'
     run.last_error = None
@@ -152,8 +153,13 @@ def advance(db: Session, run: WorkflowRun, actor_id: UUID | None) -> WorkflowRun
         run.step = name
         log_event(db, run.organization_id, actor_id, 'workflow.step_done', details={'run': str(run.id), 'step': name})
         db.commit()  # checkpoint
-    run.status = 'waiting_review'
-    log_event(db, run.organization_id, actor_id, 'workflow.review_requested', details={'run': str(run.id)})
+    if needs_review:
+        run.status = 'waiting_review'
+        log_event(db, run.organization_id, actor_id, 'workflow.review_requested', details={'run': str(run.id)})
+    else:  # read-only workflows change nothing, so there is nothing to approve
+        run.status = 'completed'
+        run.completed_at = utcnow()
+        log_event(db, run.organization_id, actor_id, 'workflow.completed', details={'run': str(run.id)})
     db.commit()
     return run
 
@@ -210,7 +216,7 @@ def resume(db: Session, organization_id: UUID, run_id: UUID, actor_id: UUID, now
 
 
 def review(db: Session, organization_id: UUID, run_id: UUID, actor_id: UUID, note: str,
-           corrections: dict[str, str] | None = None) -> WorkflowRun:
+           corrections: dict[str, str] | None = None, apply_description: str | None = None) -> WorkflowRun:
     """Recruiter confirms or corrects the evidence. The application stage is not touched."""
     run = _get(db, organization_id, run_id, lock=True)
     if run.status != 'waiting_review':
@@ -226,11 +232,13 @@ def review(db: Session, organization_id: UUID, run_id: UUID, actor_id: UUID, not
             raise WorkflowError(422, f'Unknown requirement: {label[:80]}')
         if status not in evidence.STATUSES:
             raise WorkflowError(422, f'Status must be one of {", ".join(evidence.STATUSES)}')
+    if apply_description is not None:
+        _apply_description(db, run, actor_id, apply_description)  # last check before anything changes
     for row in matrix:
         row['recruiter_status'] = corrections.get(row['requirement'], row['status'])
     run.state = {**run.state, 'matrix': matrix}
     run.status = 'completed'
-    run.review_decision = 'corrected' if corrections else 'accepted'
+    run.review_decision = 'applied' if apply_description is not None else ('corrected' if corrections else 'accepted')
     run.review_note = note
     run.reviewed_by_id = actor_id
     run.completed_at = utcnow()
@@ -245,6 +253,23 @@ def review(db: Session, organization_id: UUID, run_id: UUID, actor_id: UUID, not
     return run
 
 
+def _apply_description(db: Session, run: WorkflowRun, actor_id: UUID, text_: str) -> None:
+    """The only write in the Job Description workflow, done by the recruiter's approval, not by the agent."""
+    from app.models.schema import Job
+    if run.workflow != 'job_description':
+        raise WorkflowError(422, 'Only job description runs can update a job')
+    text_ = text_.strip()
+    if not 20 <= len(text_) <= 20000:
+        raise WorkflowError(422, 'Description must be 20-20000 characters')
+    job_id = UUID((run.state or {}).get('job_id', '00000000-0000-0000-0000-000000000000'))
+    job = db.scalar(select(Job).where(Job.id == job_id, Job.organization_id == run.organization_id))
+    if job is None:
+        raise WorkflowError(404, 'Job not found')
+    job.description = text_  # status, title and requirements are left unchanged
+    log_event(db, run.organization_id, actor_id, 'workflow.job_description_applied',
+              details={'run': str(run.id), 'job': str(job.id), 'characters': len(text_)})
+
+
 def cancel(db: Session, organization_id: UUID, run_id: UUID, actor_id: UUID) -> WorkflowRun:
     run = _get(db, organization_id, run_id, lock=True)
     if run.status in ('completed', 'cancelled'):
@@ -256,17 +281,29 @@ def cancel(db: Session, organization_id: UUID, run_id: UUID, actor_id: UUID) -> 
     return run
 
 
+DISCLAIMERS = {
+    WORKFLOW: 'Unverified resume claims. Not a score, ranking or hiring decision; a recruiter decides.',
+    'interview_summary': "The candidate's own answers. Not a score or recommendation; record the hiring decision yourself in Interview Studio.",
+    'job_description': 'A draft only. The job changes only when you approve, and is never published or closed by the agent.',
+    'recruitment_analytics': 'Counts for your organization only. No individual candidate is assessed.',
+}
+
+
 def serialize(run: WorkflowRun) -> dict:
     state = run.state or {}
-    context = state.get('application') or state.get('interview') or {}
-    _, steps = definition(run.workflow)
+    context = state.get('application') or state.get('interview') or state.get('job') or {}
+    _, steps, _ = definition(run.workflow)
     names = [name for name, _ in steps]
     done = names.index(run.step) + 1 if run.step in names else 0
-    resume_flow = run.workflow == WORKFLOW
     return {
-        'id': str(run.id), 'workflow': run.workflow, 'application_id': str(run.application_id),
+        'id': str(run.id), 'workflow': run.workflow,
+        'application_id': str(run.application_id) if run.application_id else None,
         'interview_id': state.get('interview_id'),
-        'job_title': context.get('job_title'), 'status': run.status, 'attempts': run.attempts,
+        'job_id': state.get('job_id') or context.get('job_id'),
+        'job_title': context.get('job_title') or context.get('title')
+                     or (f"Recruitment report, last {state.get('days', 30)} days" if run.workflow == 'recruitment_analytics' else None),
+        'issues': state.get('issues', []), 'draft': state.get('draft'),
+        'findings': state.get('findings', []), 'snapshot': state.get('snapshot'), 'status': run.status, 'attempts': run.attempts,
         'steps': [{'name': name, 'done': i < done} for i, name in enumerate(names)],
         'unanswered': state.get('unanswered', []),
         'waiting_reason': state.get('waiting_reason'), 'last_error': run.last_error,
@@ -275,7 +312,5 @@ def serialize(run: WorkflowRun) -> dict:
         'review_decision': run.review_decision, 'review_note': run.review_note,
         'created_at': run.created_at.isoformat() if run.created_at else None,
         'completed_at': run.completed_at.isoformat() if run.completed_at else None,
-        'disclaimer': ('Unverified resume claims. Not a score, ranking or hiring decision; a recruiter decides.'
-                       if resume_flow else "The candidate's own answers. Not a score or recommendation; "
-                       'record the hiring decision yourself in Interview Studio.'),
+        'disclaimer': DISCLAIMERS.get(run.workflow, ''),
     }

@@ -6,11 +6,13 @@ and that the record belongs to this organization. A tool never trusts what the a
 Every call, allowed or refused, is written to the Phase 6 audit log.
 """
 import json
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from uuid import UUID
 from sqlalchemy import Uuid, bindparam, select, text
 from sqlalchemy.orm import Session
-from app.models.schema import Application, Interview, Job, JobRequirement, Organization, OrganizationMembership, User
+from app.models.schema import (Application, ApplicationStageHistory, Interview, Job, JobRequirement, Organization,
+                               OrganizationMembership, User)
 from app.phase6_agents.models import AgentTask
 from app.phase6_agents.service import log_event
 
@@ -138,6 +140,72 @@ def load_answers(ctx: ToolContext, interview_id: UUID) -> list[dict]:
     return [{'position': q.position, 'question': q.text, 'answer': answers.get(q.id)} for q in questions]
 
 
+def load_job(ctx: ToolContext, job_id: UUID) -> dict:
+    job = ctx.db.get(Job, job_id)
+    if job is None or job.organization_id != ctx.organization_id:
+        raise RecordNotFound('Job not found')
+    rows = ctx.db.scalars(select(JobRequirement).where(JobRequirement.job_id == job.id).order_by(JobRequirement.label)).all()
+    return {'job_id': str(job.id), 'title': job.title, 'description': job.description or '', 'location': job.location,
+            'employment_type': job.employment_type, 'status': job.status,
+            'requirements': [{'label': r.label, 'required': bool(r.required)} for r in rows if r.label and r.label.strip()]}
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    if value is not None and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def pipeline_snapshot(ctx: ToolContext, days: int = 30, now: datetime | None = None) -> dict:
+    """Aggregate counts for this organization only. No names or personal details leave this tool."""
+    from .analytics import CLOSED_STAGES, STUCK_DAYS
+    days = max(7, min(int(days), 180))
+    now = now or datetime.now(timezone.utc)
+    start, previous_start, stuck_before = now - timedelta(days=days), now - timedelta(days=2 * days), now - timedelta(days=STUCK_DAYS)
+    jobs = ctx.db.execute(select(Job.id, Job.title, Job.status).where(Job.organization_id == ctx.organization_id)
+                          .order_by(Job.title).limit(500)).all()
+    apps = ctx.db.execute(select(Application.id, Application.job_id, Application.stage, Application.applied_at)
+                          .join(Job, Job.id == Application.job_id)
+                          .where(Job.organization_id == ctx.organization_id).limit(20000)).all()
+    last_change: dict = {}
+    for app_id, changed_at in ctx.db.execute(
+            select(ApplicationStageHistory.application_id, ApplicationStageHistory.changed_at)
+            .join(Application, Application.id == ApplicationStageHistory.application_id)
+            .join(Job, Job.id == Application.job_id).where(Job.organization_id == ctx.organization_id)).all():
+        changed_at = _aware(changed_at)
+        if changed_at and (app_id not in last_change or changed_at > last_change[app_id]):
+            last_change[app_id] = changed_at
+    per_job = {j[0]: {'title': j[1], 'status': j[2], 'current': 0, 'previous': 0} for j in jobs}
+    open_by_stage: dict[str, int] = {}
+    stuck_by_stage: dict[str, int] = {}
+    for app_id, job_id, stage, applied_at in apps:
+        applied_at = _aware(applied_at)
+        if applied_at and applied_at >= start:
+            per_job[job_id]['current'] += 1
+        elif applied_at and applied_at >= previous_start:
+            per_job[job_id]['previous'] += 1
+        if stage in CLOSED_STAGES:
+            continue
+        open_by_stage[stage] = open_by_stage.get(stage, 0) + 1
+        moved = last_change.get(app_id) or applied_at
+        if moved and moved < stuck_before:
+            stuck_by_stage[stage] = stuck_by_stage.get(stage, 0) + 1
+    interviews = ctx.db.execute(select(Interview.status, Interview.scheduled_at, Interview.candidate_response)
+                                .join(Application, Application.id == Interview.application_id)
+                                .join(Job, Job.id == Application.job_id)
+                                .where(Job.organization_id == ctx.organization_id).limit(20000)).all()
+    overdue = sum(1 for status, when, _ in interviews
+                  if status in ('scheduled', 'in_progress') and _aware(when) and _aware(when) < now - timedelta(days=1))
+    declined = sum(1 for _, when, response in interviews if response == 'declined' and _aware(when) and _aware(when) >= start)
+    completed = sum(1 for status, when, _ in interviews if status == 'completed' and _aware(when) and _aware(when) >= start)
+    job_rows = list(per_job.values())
+    return {'days': days, 'generated_at': now.isoformat(),
+            'applications_current': sum(j['current'] for j in job_rows),
+            'applications_previous': sum(j['previous'] for j in job_rows),
+            'jobs': job_rows, 'open_by_stage': open_by_stage, 'stuck_by_stage': stuck_by_stage,
+            'interviews_overdue': overdue, 'interviews_declined': declined, 'interviews_completed': completed}
+
+
 TOOLS = {
     'load_application': load_application,
     'load_requirements': load_requirements,
@@ -145,12 +213,16 @@ TOOLS = {
     'request_review': request_review,
     'load_interview': load_interview,
     'load_answers': load_answers,
+    'load_job': load_job,
+    'pipeline_snapshot': pipeline_snapshot,
 }
 
 # The only place that grants tools to agents.
 ALLOWLIST: dict[str, frozenset[str]] = {
     'resume_analysis': frozenset({'load_application', 'load_requirements', 'load_resume', 'request_review'}),
     'interview_summary': frozenset({'load_interview', 'load_requirements', 'load_answers', 'request_review'}),
+    'job_description': frozenset({'load_job', 'request_review'}),
+    'recruitment_analytics': frozenset({'pipeline_snapshot'}),  # read-only
 }
 
 

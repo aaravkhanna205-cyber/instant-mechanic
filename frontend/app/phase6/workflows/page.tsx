@@ -12,12 +12,19 @@ type Row = {
   note: string | null;
   recruiter_status?: Status;
 };
-type Workflow = "resume_review" | "interview_summary";
+type Workflow = "resume_review" | "interview_summary" | "job_description" | "recruitment_analytics";
+type Issue = { kind: string; severity: "fix" | "improve"; where: string; text: string; why: string; suggestion: string };
+type Snapshot = { days: number; applications_current: number; applications_previous: number; open_by_stage: Record<string, number>; stuck_by_stage: Record<string, number>; interviews_overdue: number; interviews_completed: number; jobs: { title: string; status: string; current: number; previous: number }[] };
 type Run = {
   id: string;
   workflow: Workflow;
   application_id: string;
   interview_id: string | null;
+  job_id: string | null;
+  issues: Issue[];
+  draft: string | null;
+  findings: { kind: string; text: string }[];
+  snapshot: Snapshot | null;
   job_title: string | null;
   status: string;
   attempts: number;
@@ -36,6 +43,15 @@ type Run = {
 };
 type ApplicationOption = { id: string; candidate_name: string; job_title: string; stage: string };
 type InterviewOption = { id: string; candidate_name: string; job_title: string; status: string };
+type JobOption = { id: string; title: string; status: string; applications: number };
+const WORKFLOWS: [Workflow, string][] = [
+  ["resume_review", "Resume review"],
+  ["interview_summary", "Interview summary"],
+  ["job_description", "Job description"],
+  ["recruitment_analytics", "Analytics"],
+];
+const WORKFLOW_LABEL = Object.fromEntries(WORKFLOWS) as Record<Workflow, string>;
+const STAGES = ["applied", "screening", "shortlisted", "trade_test", "interview", "offer"];
 
 const STATUS_LABEL: Record<Status, string> = {
   supported: "Text found",
@@ -60,6 +76,12 @@ const STEP_LABEL: Record<string, string> = {
   load_context: "Load application",
   check_resume: "Check resume",
   check_completed: "Check interview finished",
+  load_job: "Load job",
+  check_quality: "Check wording",
+  draft: "Write draft",
+  load_pipeline: "Count pipeline",
+  find_bottlenecks: "Find bottlenecks",
+  write_report: "Write report",
   safety_scan: "Safety scan",
   build_evidence: "Match requirements",
   summarize: "Summary",
@@ -79,6 +101,10 @@ export default function WorkflowsPage() {
   const [workflow, setWorkflow] = useState<Workflow>("resume_review");
   const [interviews, setInterviews] = useState<InterviewOption[]>([]);
   const [interviewId, setInterviewId] = useState("");
+  const [jobs, setJobs] = useState<JobOption[]>([]);
+  const [jobId, setJobId] = useState("");
+  const [days, setDays] = useState(30);
+  const [draftText, setDraftText] = useState("");
   const [runs, setRuns] = useState<Run[]>([]);
   const [open, setOpen] = useState<Run | null>(null);
   const [note, setNote] = useState("");
@@ -111,11 +137,13 @@ export default function WorkflowsPage() {
     if (!org) return;
     let active = true;
     const b = `/api/phase6/organizations/${encodeURIComponent(org)}/workflows`;
-    Promise.all([api<ApplicationOption[]>(`${b}/applications`), api<InterviewOption[]>(`${b}/interviews`), api<Run[]>(b)])
-      .then(([a, i, r]) => {
+    Promise.all([api<ApplicationOption[]>(`${b}/applications`), api<InterviewOption[]>(`${b}/interviews`), api<JobOption[]>(`${b}/jobs`), api<Run[]>(b)])
+      .then(([a, i, j, r]) => {
         if (!active) return;
         setApplications(a);
         setInterviews(i);
+        setJobs(j);
+        setJobId((prev) => prev || j[0]?.id || "");
         setRuns(r);
         setApplicationId((prev) => prev || a[0]?.id || "");
         setInterviewId((prev) => prev || i[0]?.id || "");
@@ -129,6 +157,13 @@ export default function WorkflowsPage() {
     };
   }, [org, reload]);
 
+  function openRun(run: Run) {
+    setOpen(run);
+    setCorrections({});
+    setNote("");
+    setDraftText(run.draft ?? "");
+  }
+
   async function post(path: string, body: unknown, done: string) {
     if (!session || !base) return;
     setBusy(true);
@@ -136,9 +171,7 @@ export default function WorkflowsPage() {
     setInfo("");
     try {
       const run = await api<Run>(`${base}${path}`, { method: "POST", body: JSON.stringify(body) }, session.csrf_token);
-      setOpen(run);
-      setCorrections({});
-      setNote("");
+      openRun(run);
       setInfo(done);
       setReload((n) => n + 1);
     } catch (e) {
@@ -157,7 +190,7 @@ export default function WorkflowsPage() {
           <div>
             <div className="text-xs font-bold uppercase tracking-[.25em] text-amber-700">Instant Mechanic Hire</div>
             <h1 className="text-2xl font-bold md:text-3xl">Agent workflows</h1>
-            <p className="text-sm text-stone-600">Agents prepare evidence from resumes and interview answers. You review it and decide. Nothing is sent and no stage changes.</p>
+            <p className="text-sm text-stone-600">Agents check resumes, interview answers and job descriptions, and report on your pipeline. You review and decide; nothing is sent and no stage changes.</p>
           </div>
           <a href="/phase6" className="rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold">Back to Phase 6</a>
         </div>
@@ -172,8 +205,8 @@ export default function WorkflowsPage() {
         {info && <div role="status" className="rounded-xl border border-green-300 bg-green-50 p-4 text-green-900">{info}</div>}
 
         <section className="space-y-4 rounded-2xl border border-amber-200 bg-white p-5">
-          <div role="tablist" aria-label="Workflow" className="inline-flex rounded-xl border border-amber-200 bg-[#FFF4E5] p-1 text-sm font-semibold">
-            {([["resume_review", "Resume review"], ["interview_summary", "Interview summary"]] as [Workflow, string][]).map(([key, label]) => (
+          <div role="tablist" aria-label="Workflow" className="inline-flex flex-wrap rounded-xl border border-amber-200 bg-[#FFF4E5] p-1 text-sm font-semibold">
+            {WORKFLOWS.map(([key, label]) => (
               <button key={key} type="button" role="tab" aria-selected={workflow === key} onClick={() => setWorkflow(key)}
                 className={`rounded-lg px-4 py-2 ${workflow === key ? "bg-white shadow-sm" : "text-stone-600"}`}>{label}</button>
             ))}
@@ -181,11 +214,11 @@ export default function WorkflowsPage() {
           <div className="grid gap-4 md:grid-cols-[1fr_2fr_auto] md:items-end">
             <label className="text-sm font-semibold">
               Organization
-              <select className="mt-1 w-full rounded-lg border border-amber-200 bg-white p-2" value={org} onChange={(e) => { setOrg(e.target.value); setApplicationId(""); setInterviewId(""); setOpen(null); }}>
+              <select className="mt-1 w-full rounded-lg border border-amber-200 bg-white p-2" value={org} onChange={(e) => { setOrg(e.target.value); setApplicationId(""); setInterviewId(""); setJobId(""); setOpen(null); }}>
                 {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
               </select>
             </label>
-            {workflow === "resume_review" ? (
+            {workflow === "resume_review" && (
               <label className="text-sm font-semibold">
                 Application
                 <select className="mt-1 w-full rounded-lg border border-amber-200 bg-white p-2" value={applicationId} onChange={(e) => setApplicationId(e.target.value)}>
@@ -195,7 +228,8 @@ export default function WorkflowsPage() {
                   ))}
                 </select>
               </label>
-            ) : (
+            )}
+            {workflow === "interview_summary" && (
               <label className="text-sm font-semibold">
                 Interview
                 <select className="mt-1 w-full rounded-lg border border-amber-200 bg-white p-2" value={interviewId} onChange={(e) => setInterviewId(e.target.value)}>
@@ -206,14 +240,44 @@ export default function WorkflowsPage() {
                 </select>
               </label>
             )}
-            {workflow === "resume_review" ? (
+            {workflow === "job_description" && (
+              <label className="text-sm font-semibold">
+                Job
+                <select className="mt-1 w-full rounded-lg border border-amber-200 bg-white p-2" value={jobId} onChange={(e) => setJobId(e.target.value)}>
+                  {jobs.length === 0 && <option value="">No jobs in this organization yet</option>}
+                  {jobs.map((j) => (
+                    <option key={j.id} value={j.id}>{j.title} · {j.status} · {j.applications} applications</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {workflow === "recruitment_analytics" && (
+              <label className="text-sm font-semibold">
+                Period
+                <select className="mt-1 w-full rounded-lg border border-amber-200 bg-white p-2" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+                  {[7, 30, 90, 180].map((d) => <option key={d} value={d}>Last {d} days</option>)}
+                </select>
+              </label>
+            )}
+            {workflow === "resume_review" && (
               <button type="button" disabled={busy || !applicationId}
                 onClick={() => post("", { application_id: applicationId }, "Workflow started. See the result below.")}
                 className="rounded-lg bg-[#FBBF24] px-5 py-2.5 font-bold text-[#1C1917] disabled:opacity-50">Run resume review</button>
-            ) : (
+            )}
+            {workflow === "interview_summary" && (
               <button type="button" disabled={busy || !interviewId}
                 onClick={() => post("/interview-summary", { interview_id: interviewId }, "Workflow started. See the result below.")}
                 className="rounded-lg bg-[#FBBF24] px-5 py-2.5 font-bold text-[#1C1917] disabled:opacity-50">Run interview summary</button>
+            )}
+            {workflow === "job_description" && (
+              <button type="button" disabled={busy || !jobId}
+                onClick={() => post("/job-description", { job_id: jobId }, "Draft ready. Review it below; the job has not changed.")}
+                className="rounded-lg bg-[#FBBF24] px-5 py-2.5 font-bold text-[#1C1917] disabled:opacity-50">Check job description</button>
+            )}
+            {workflow === "recruitment_analytics" && (
+              <button type="button" disabled={busy}
+                onClick={() => post("/analytics", { days }, "Report ready. See it below.")}
+                className="rounded-lg bg-[#FBBF24] px-5 py-2.5 font-bold text-[#1C1917] disabled:opacity-50">Create report</button>
             )}
           </div>
         </section>
@@ -224,7 +288,7 @@ export default function WorkflowsPage() {
             <button type="button" className="text-sm font-semibold text-amber-800 underline" onClick={() => setReload((n) => n + 1)}>Refresh</button>
           </div>
           {runs.length === 0 ? (
-            <p className="p-5 text-sm text-stone-500">No runs yet. Pick a workflow and a record above, then click Run.</p>
+            <p className="p-5 text-sm text-stone-500">No runs yet. Pick a workflow above and start it.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -234,12 +298,12 @@ export default function WorkflowsPage() {
                 <tbody>
                   {runs.map((r) => (
                     <tr key={r.id} className={`border-t border-amber-100 ${open?.id === r.id ? "bg-amber-50" : ""}`}>
-                      <td className="p-3">{r.workflow === "interview_summary" ? "Interview summary" : "Resume review"}</td>
+                      <td className="p-3">{WORKFLOW_LABEL[r.workflow] ?? r.workflow}</td>
                       <td className="p-3">{r.job_title ?? "—"}</td>
                       <td className="p-3"><span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ${RUN_STYLE[r.status] ?? ""}`}>{r.status.replace("_", " ")}</span></td>
                       <td className="p-3">{r.steps.filter((s) => s.done).length} / {r.steps.length}</td>
                       <td className="p-3">{r.created_at ? new Date(r.created_at).toLocaleString() : "—"}</td>
-                      <td className="p-3 text-right"><button type="button" className="font-semibold text-amber-800 underline" onClick={() => { setOpen(r); setCorrections({}); setNote(""); }}>Open</button></td>
+                      <td className="p-3 text-right"><button type="button" className="font-semibold text-amber-800 underline" onClick={() => openRun(r)}>Open</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -274,7 +338,64 @@ export default function WorkflowsPage() {
 
             {open.summary && <p className="rounded-lg border border-amber-200 bg-[#FFF4E5] p-4 text-sm leading-6">{open.summary}</p>}
 
+            {open.issues.length > 0 && (
+              <ul className="space-y-2">
+                {open.issues.map((issue, i) => (
+                  <li key={i} className={`rounded-lg border p-3 text-sm ${issue.severity === "fix" ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
+                    <span className={`mr-2 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-bold ${issue.severity === "fix" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-900"}`}>{issue.severity === "fix" ? "Fix" : "Improve"}</span>
+                    <span className="font-semibold">{issue.where}: “{issue.text}”</span> {issue.why} <span className="text-stone-600">{issue.suggestion}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {open.workflow === "job_description" && open.draft && (
+              <label className="block text-sm font-semibold">
+                Draft {open.status === "waiting_review" ? "(edit it before approving)" : ""}
+                <textarea className="mt-1 w-full rounded-lg border border-amber-200 p-3 font-mono text-[13px] leading-6" rows={16}
+                  value={open.status === "waiting_review" ? draftText : open.draft} readOnly={open.status !== "waiting_review"}
+                  onChange={(e) => setDraftText(e.target.value)} />
+              </label>
+            )}
+
+            {open.snapshot && (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-amber-100">
+                  <p className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs font-bold uppercase text-stone-600">Open applications by stage</p>
+                  <table className="w-full text-sm"><tbody>
+                    {STAGES.map((stage) => (
+                      <tr key={stage} className="border-t border-amber-100 first:border-t-0">
+                        <td className="p-2.5">{stage.replace("_", " ")}</td>
+                        <td className="p-2.5 text-right font-semibold tabular-nums">{open.snapshot?.open_by_stage[stage] ?? 0}</td>
+                        <td className="p-2.5 text-right text-xs text-stone-500 tabular-nums">{open.snapshot?.stuck_by_stage[stage] ? `${open.snapshot.stuck_by_stage[stage]} waiting 7+ days` : ""}</td>
+                      </tr>
+                    ))}
+                  </tbody></table>
+                </div>
+                <div className="rounded-xl border border-amber-100">
+                  <p className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs font-bold uppercase text-stone-600">Applications per job (last {open.snapshot.days} days / before)</p>
+                  <table className="w-full text-sm"><tbody>
+                    {open.snapshot.jobs.map((j) => (
+                      <tr key={j.title} className="border-t border-amber-100 first:border-t-0">
+                        <td className="p-2.5">{j.title} <span className="text-xs text-stone-500">{j.status}</span></td>
+                        <td className="p-2.5 text-right font-semibold tabular-nums">{j.current}</td>
+                        <td className="p-2.5 text-right text-stone-500 tabular-nums">{j.previous}</td>
+                      </tr>
+                    ))}
+                  </tbody></table>
+                </div>
+              </div>
+            )}
+
+            {open.findings.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
+                <p className="font-semibold">What needs attention</p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">{open.findings.map((f, i) => <li key={i}>{f.text}</li>)}</ul>
+              </div>
+            )}
+
             {open.matrix.length > 0 && (
+
               <div className="overflow-x-auto rounded-xl border border-amber-100">
                 <table className="w-full text-left text-sm">
                   <thead className="bg-amber-50 text-xs uppercase text-stone-600">
@@ -336,13 +457,24 @@ export default function WorkflowsPage() {
               <div className="space-y-3 border-t border-amber-100 pt-4">
                 <label className="block text-sm font-semibold">
                   Review note
-                  <textarea className="mt-1 w-full rounded-lg border border-amber-200 p-2" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What you checked, for example: confirmed Excel skills in the screening call" />
+                  <textarea className="mt-1 w-full rounded-lg border border-amber-200 p-2" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder={open.workflow === "job_description" ? "What you changed, for example: removed age limit, added salary" : "What you checked, for example: confirmed Excel skills in the screening call"} />
                 </label>
-                <button type="button" disabled={busy || note.trim().length < 4}
-                  onClick={() => post(`/${open.id}/review`, { note, corrections }, "Review saved. The application stage was not changed.")}
-                  className="rounded-lg bg-[#FBBF24] px-5 py-2.5 font-bold text-[#1C1917] disabled:opacity-50">
-                  {changed ? `Save review with ${changed} correction${changed > 1 ? "s" : ""}` : "Confirm evidence"}
-                </button>
+                {open.workflow === "job_description" ? (
+                  <div className="flex flex-wrap gap-3">
+                    <button type="button" disabled={busy || note.trim().length < 4 || draftText.trim().length < 20}
+                      onClick={() => post(`/${open.id}/review`, { note, apply_description: draftText }, "Job description updated. The job's status, title and requirements were not changed.")}
+                      className="rounded-lg bg-[#FBBF24] px-5 py-2.5 font-bold text-[#1C1917] disabled:opacity-50">Approve and update job description</button>
+                    <button type="button" disabled={busy || note.trim().length < 4}
+                      onClick={() => post(`/${open.id}/review`, { note }, "Review saved. The job was not changed.")}
+                      className="rounded-lg border border-stone-300 px-5 py-2.5 font-semibold disabled:opacity-50">Keep job unchanged</button>
+                  </div>
+                ) : (
+                  <button type="button" disabled={busy || note.trim().length < 4}
+                    onClick={() => post(`/${open.id}/review`, { note, corrections }, "Review saved. The application stage was not changed.")}
+                    className="rounded-lg bg-[#FBBF24] px-5 py-2.5 font-bold text-[#1C1917] disabled:opacity-50">
+                    {changed ? `Save review with ${changed} correction${changed > 1 ? "s" : ""}` : "Confirm evidence"}
+                  </button>
+                )}
               </div>
             )}
             {open.status === "completed" && open.review_note && <p className="text-sm"><span className="font-semibold">Recruiter note ({open.review_decision}):</span> {open.review_note}</p>}
