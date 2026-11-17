@@ -100,6 +100,16 @@ STEPS = [
 STEP_NAMES = [name for name, _ in STEPS]
 
 
+def definition(workflow: str) -> tuple[str, list]:
+    """(agent, steps) for a workflow. Read at run time, so every run uses the current step list."""
+    if workflow == WORKFLOW:
+        return AGENT, STEPS
+    if workflow == 'interview_summary':
+        from . import interview_summary
+        return interview_summary.AGENT, interview_summary.STEPS
+    raise WorkflowError(422, f'Unknown workflow: {workflow[:40]}')
+
+
 def _error_text(exc: Exception) -> str:
     if isinstance(exc, (ToolDenied, RecordNotFound)):
         return str(exc)[:300]
@@ -111,11 +121,13 @@ def advance(db: Session, run: WorkflowRun, actor_id: UUID | None) -> WorkflowRun
     """Run every step after the last checkpoint. Saves after each step."""
     if run.status in ('completed', 'cancelled', 'waiting_review'):
         return run
+    _, steps = definition(run.workflow)
+    names = [name for name, _ in steps]
     run.status = 'running'
     run.last_error = None
     db.commit()
-    start = STEP_NAMES.index(run.step) + 1 if run.step else 0
-    for name, fn in STEPS[start:]:
+    start = names.index(run.step) + 1 if run.step in names else 0
+    for name, fn in steps[start:]:
         ctx = ToolContext(db=db, organization_id=run.organization_id, actor_id=actor_id, run_id=run.id)
         try:
             updates = fn(ctx, run, dict(run.state or {}))
@@ -246,17 +258,24 @@ def cancel(db: Session, organization_id: UUID, run_id: UUID, actor_id: UUID) -> 
 
 def serialize(run: WorkflowRun) -> dict:
     state = run.state or {}
-    application = state.get('application') or {}
-    done = STEP_NAMES.index(run.step) + 1 if run.step in STEP_NAMES else 0
+    context = state.get('application') or state.get('interview') or {}
+    _, steps = definition(run.workflow)
+    names = [name for name, _ in steps]
+    done = names.index(run.step) + 1 if run.step in names else 0
+    resume_flow = run.workflow == WORKFLOW
     return {
         'id': str(run.id), 'workflow': run.workflow, 'application_id': str(run.application_id),
-        'job_title': application.get('job_title'), 'status': run.status, 'attempts': run.attempts,
-        'steps': [{'name': name, 'done': i < done} for i, name in enumerate(STEP_NAMES)],
+        'interview_id': state.get('interview_id'),
+        'job_title': context.get('job_title'), 'status': run.status, 'attempts': run.attempts,
+        'steps': [{'name': name, 'done': i < done} for i, name in enumerate(names)],
+        'unanswered': state.get('unanswered', []),
         'waiting_reason': state.get('waiting_reason'), 'last_error': run.last_error,
         'skills_to_verify': (state.get('resume') or {}).get('skills', []),
         'matrix': state.get('matrix', []), 'flagged': state.get('flagged', []), 'summary': state.get('summary'),
         'review_decision': run.review_decision, 'review_note': run.review_note,
         'created_at': run.created_at.isoformat() if run.created_at else None,
         'completed_at': run.completed_at.isoformat() if run.completed_at else None,
-        'disclaimer': 'Unverified resume claims. Not a score, ranking or hiring decision; a recruiter decides.',
+        'disclaimer': ('Unverified resume claims. Not a score, ranking or hiring decision; a recruiter decides.'
+                       if resume_flow else "The candidate's own answers. Not a score or recommendation; "
+                       'record the hiring decision yourself in Interview Studio.'),
     }

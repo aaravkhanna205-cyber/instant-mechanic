@@ -5,9 +5,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from app.api.recruitment import require_csrf
-from app.models.schema import Application, CandidateProfile, Job, User
+from app.models.schema import Application, CandidateProfile, Interview, Job, User
 from app.security.dependencies import get_db, require_recruiter_for_org
-from . import resume_review as flow
+from . import interview_summary, resume_review as flow
 from .models import WorkflowRun
 
 router = APIRouter(prefix='/api/phase6/organizations/{organization_id}/workflows', tags=['Phase 6 Workflows'])
@@ -15,6 +15,10 @@ router = APIRouter(prefix='/api/phase6/organizations/{organization_id}/workflows
 
 class StartRun(BaseModel):
     application_id: UUID
+
+
+class StartInterviewRun(BaseModel):
+    interview_id: UUID
 
 
 class ReviewRun(BaseModel):
@@ -41,6 +45,28 @@ def applications(organization_id: UUID, _: User = Depends(require_recruiter_for_
         .order_by(Application.applied_at.desc()).limit(100)).all()
     return [{'id': str(r[0]), 'stage': r[1], 'applied_at': r[2].isoformat() if r[2] else None,
              'job_title': r[3], 'candidate_name': r[4]} for r in rows]
+
+
+@router.get('/interviews')
+def interviews(organization_id: UUID, _: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
+    """Recent interviews in this organization, completed ones first."""
+    rows = db.execute(
+        select(Interview.id, Interview.status, Interview.scheduled_at, Job.title, User.full_name)
+        .join(Application, Application.id == Interview.application_id)
+        .join(Job, Job.id == Application.job_id)
+        .join(CandidateProfile, CandidateProfile.id == Application.candidate_id)
+        .join(User, User.id == CandidateProfile.user_id)
+        .where(Job.organization_id == organization_id)
+        .order_by((Interview.status == 'completed').desc(), Interview.scheduled_at.desc()).limit(100)).all()
+    return [{'id': str(r[0]), 'status': r[1], 'scheduled_at': r[2].isoformat() if r[2] else None,
+             'job_title': r[3], 'candidate_name': r[4]} for r in rows]
+
+
+@router.post('/interview-summary', status_code=201)
+def start_interview_summary(organization_id: UUID, body: StartInterviewRun, _: None = Depends(require_csrf),
+                            user: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
+    run, created = _call(interview_summary.start, db, organization_id, user.id, body.interview_id)
+    return {**flow.serialize(run), 'newly_created': created}
 
 
 @router.post('', status_code=201)

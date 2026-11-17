@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from uuid import UUID
 from sqlalchemy import Uuid, bindparam, select, text
 from sqlalchemy.orm import Session
-from app.models.schema import Application, Job, JobRequirement, Organization, OrganizationMembership, User
+from app.models.schema import Application, Interview, Job, JobRequirement, Organization, OrganizationMembership, User
 from app.phase6_agents.models import AgentTask
 from app.phase6_agents.service import log_event
 
@@ -110,16 +110,47 @@ def request_review(ctx: ToolContext, title: str) -> dict:
     return {'task_id': str(task.id)}
 
 
+def _interview_in_org(ctx: ToolContext, interview_id: UUID) -> tuple[Interview, Application, Job]:
+    interview = ctx.db.get(Interview, interview_id)
+    if interview is None:
+        raise RecordNotFound('Interview not found')
+    try:
+        application, job = _application_in_org(ctx, interview.application_id)
+    except RecordNotFound as exc:
+        raise RecordNotFound('Interview not found') from exc
+    return interview, application, job
+
+
+def load_interview(ctx: ToolContext, interview_id: UUID) -> dict:
+    interview, application, job = _interview_in_org(ctx, interview_id)
+    return {'interview_id': str(interview.id), 'application_id': str(application.id), 'job_id': str(job.id),
+            'job_title': job.title, 'status': interview.status, 'stage': application.stage}
+
+
+def load_answers(ctx: ToolContext, interview_id: UUID) -> list[dict]:
+    """Approved questions of THIS interview, each with the candidate's answer (or None)."""
+    from app.interview_studio.models import InterviewAnswer, InterviewQuestion
+    interview, _, _ = _interview_in_org(ctx, interview_id)
+    questions = ctx.db.scalars(select(InterviewQuestion).where(InterviewQuestion.interview_id == interview.id)
+                               .order_by(InterviewQuestion.position).limit(100)).all()
+    answers = {a.question_id: a.answer for a in ctx.db.scalars(
+        select(InterviewAnswer).where(InterviewAnswer.interview_id == interview.id))}
+    return [{'position': q.position, 'question': q.text, 'answer': answers.get(q.id)} for q in questions]
+
+
 TOOLS = {
     'load_application': load_application,
     'load_requirements': load_requirements,
     'load_resume': load_resume,
     'request_review': request_review,
+    'load_interview': load_interview,
+    'load_answers': load_answers,
 }
 
 # The only place that grants tools to agents.
 ALLOWLIST: dict[str, frozenset[str]] = {
     'resume_analysis': frozenset({'load_application', 'load_requirements', 'load_resume', 'request_review'}),
+    'interview_summary': frozenset({'load_interview', 'load_requirements', 'load_answers', 'request_review'}),
 }
 
 

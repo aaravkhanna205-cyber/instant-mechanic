@@ -5,8 +5,8 @@ from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text,
 from sqlalchemy.orm import Mapped, mapped_column
 from app.models.schema import Base
 
-RUN_STATUSES = ('running', 'waiting_resume', 'waiting_review', 'completed', 'failed', 'cancelled')
-ACTIVE_STATUSES = ('running', 'waiting_resume', 'waiting_review', 'failed')
+RUN_STATUSES = ('running', 'waiting_resume', 'waiting_interview', 'waiting_review', 'completed', 'failed', 'cancelled')
+ACTIVE_STATUSES = ('running', 'waiting_resume', 'waiting_interview', 'waiting_review', 'failed')
 
 
 def new_id():

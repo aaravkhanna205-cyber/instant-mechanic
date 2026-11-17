@@ -117,11 +117,14 @@ def evidence_matrix(requirements: list[str], sentences: list[dict]) -> list[dict
     return [match_requirement(label, sentences) for label in requirements[:40]]
 
 
-def summary(job_title: str, matrix: list[dict], flagged: list[dict]) -> str:
+def summary(job_title: str, matrix: list[dict], flagged: list[dict], source: str = 'resume',
+            unanswered: list[dict] | None = None) -> str:
     """A plain description of the matrix. It states counts, not a verdict."""
     counts = {status: sum(1 for row in matrix if row['status'] == status) for status in STATUSES}
     names = lambda status: ', '.join(r['requirement'] for r in matrix if r['status'] == status)[:600]
-    lines = [f'Resume evidence for {job_title[:180]}: {len(matrix)} requirements checked.']
+    where = 'the resume' if source == 'resume' else 'the answers'
+    label = 'Resume' if source == 'resume' else 'Interview'
+    lines = [f'{label} evidence for {job_title[:180]}: {len(matrix)} requirements checked.']
     if counts[SUPPORTED]:
         lines.append(f'Text found for {counts[SUPPORTED]}: {names(SUPPORTED)}.')
     if counts[UNCLEAR]:
@@ -130,7 +133,14 @@ def summary(job_title: str, matrix: list[dict], flagged: list[dict]) -> str:
         lines.append(f'No text found for {counts[MISSING]}: {names(MISSING)}.')
     if not matrix:
         lines.append('This job has no requirements listed, so nothing was checked.')
+    if unanswered:
+        lines.append(f'{len(unanswered)} question(s) have no answer or a very short one: '
+                     + ', '.join(f"question {u['position']}" for u in unanswered[:12]) + '.')
     if flagged:
-        lines.append(f'{len(flagged)} line(s) in the resume look like instructions to an AI; they were ignored and are shown for review.')
-    lines.append('These are unverified resume claims. This is not a score or a recommendation; a recruiter decides.')
+        lines.append(f'{len(flagged)} line(s) in {where} look like instructions to an AI; they were ignored and are shown for review.')
+    if source == 'resume':
+        lines.append('These are unverified resume claims. This is not a score or a recommendation; a recruiter decides.')
+    else:
+        lines.append("These are the candidate's own words. This is not a score or a recommendation; "
+                     'the hiring decision is recorded by a person in Interview Studio.')
     return ' '.join(lines)
