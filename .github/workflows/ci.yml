@@ -55,7 +55,8 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-phase6.txt
+          grep -v sentence-transformers requirements-phase4-complete.txt > /tmp/req-phase4-light.txt  # the large AI model library is not needed for tests
+          pip install -r requirements.txt -r requirements-phase3-auth.txt -r requirements-phase3-completion.txt -r /tmp/req-phase4-light.txt -r requirements-phase6.txt
       - name: Database migrations (up, one step down, up again)
         run: |
           python -m alembic upgrade head
@@ -101,7 +102,7 @@ jobs:
       - name: Python libraries
         run: |
           pip install pip-audit
-          pip-audit -r backend/requirements.txt -r backend/requirements-phase6.txt || true
+          pip-audit -r backend/requirements.txt -r backend/requirements-phase3-auth.txt -r backend/requirements-phase3-completion.txt -r backend/requirements-phase4-complete.txt -r backend/requirements-phase6.txt || true
       - name: Website libraries
         working-directory: frontend
         run: npm audit --omit=dev --audit-level=high || true
@@ -145,7 +146,8 @@ jobs:
       - name: Start the API
         working-directory: backend
         run: |
-          pip install -r requirements.txt -r requirements-phase6.txt
+          grep -v sentence-transformers requirements-phase4-complete.txt > /tmp/req-phase4-light.txt  # the large AI model library is not needed for tests
+          pip install -r requirements.txt -r requirements-phase3-auth.txt -r requirements-phase3-completion.txt -r /tmp/req-phase4-light.txt -r requirements-phase6.txt
           python -m alembic upgrade head
           python -m scripts.e2e_seed
           mkdir -p /tmp/e2e-uploads
