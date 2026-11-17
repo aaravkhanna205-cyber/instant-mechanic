@@ -99,8 +99,11 @@ if ($Verify) {
   $recent = Get-ChildItem (Join-Path $HOME 'imhire-backups') -Filter 'db-*.dump' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt (Get-Date).AddDays(-2) }
   if ($recent) { Write-Host 'PASS  Backup from the last 2 days exists' -ForegroundColor Green }
   else { Write-Host 'WARN  No recent backup. Run this script with -Backup' -ForegroundColor Yellow }
-  $head = (& docker @dc exec -T api python -m alembic current 2>$null | Out-String)
-  Check 'Database has the Phase 8 update (0012)' ($head -match '0012_phase8_server_errors') $true
+  # Read the version straight from the database (alembic prints INFO lines that PowerShell treats as errors).
+  $previous = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  $head = (& docker @dc exec -T api python -c "from sqlalchemy import text; from app.security.dependencies import session_factory as f; s=f()(); print('REV', s.execute(text('select version_num from alembic_version')).scalar())" 2>&1 | Out-String)
+  $ErrorActionPreference = $previous
+  Check 'Database has the Phase 8 update (0012)' ($head -match 'REV 0012_phase8_server_errors') $true
   $settings = @{}
   foreach ($line in Get-Content '.env.phase5.local') { if ($line -match '^([A-Z0-9_]+)=(.*)$') { $settings[$Matches[1]] = $Matches[2].Trim() } }
   if ($settings['PHASE6_DELIVERY_MODE'] -eq 'smtp' -and $settings['PHASE6_SMTP_ENABLED'] -eq 'YES') {
