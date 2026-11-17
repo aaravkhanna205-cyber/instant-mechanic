@@ -44,3 +44,7 @@ app.include_router(interview_studio_router)
 # Phase 6: authenticated automation endpoints
 from app.phase6_agents.api import router as phase6_router
 app.include_router(phase6_router)
+
+# Phase 6 workflows: Resume Review (checkpointed, allowlisted tools, recruiter review)
+from app.ai.agents.workflows.api import router as phase6_workflows_router
+app.include_router(phase6_workflows_router)

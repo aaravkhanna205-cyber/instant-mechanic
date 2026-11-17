@@ -1,0 +1,82 @@
+"""Authenticated, CSRF-protected, organization-scoped API for Phase 6 workflows."""
+from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from app.api.recruitment import require_csrf
+from app.models.schema import Application, CandidateProfile, Job, User
+from app.security.dependencies import get_db, require_recruiter_for_org
+from . import resume_review as flow
+from .models import WorkflowRun
+
+router = APIRouter(prefix='/api/phase6/organizations/{organization_id}/workflows', tags=['Phase 6 Workflows'])
+
+
+class StartRun(BaseModel):
+    application_id: UUID
+
+
+class ReviewRun(BaseModel):
+    note: str = Field(min_length=4, max_length=2000)
+    corrections: dict[str, str] = Field(default_factory=dict)
+
+
+def _call(fn, *args):
+    try:
+        return fn(*args)
+    except flow.WorkflowError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+
+
+@router.get('/applications')
+def applications(organization_id: UUID, _: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
+    """Recent applications in this organization, so nobody has to copy IDs by hand."""
+    rows = db.execute(
+        select(Application.id, Application.stage, Application.applied_at, Job.title, User.full_name)
+        .join(Job, Job.id == Application.job_id)
+        .join(CandidateProfile, CandidateProfile.id == Application.candidate_id)
+        .join(User, User.id == CandidateProfile.user_id)
+        .where(Job.organization_id == organization_id)
+        .order_by(Application.applied_at.desc()).limit(100)).all()
+    return [{'id': str(r[0]), 'stage': r[1], 'applied_at': r[2].isoformat() if r[2] else None,
+             'job_title': r[3], 'candidate_name': r[4]} for r in rows]
+
+
+@router.post('', status_code=201)
+def start_run(organization_id: UUID, body: StartRun, _: None = Depends(require_csrf),
+              user: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
+    run, created = _call(flow.start, db, organization_id, user.id, body.application_id)
+    return {**flow.serialize(run), 'newly_created': created}
+
+
+@router.get('')
+def list_runs(organization_id: UUID, status: str | None = None, limit: int = Query(default=50, ge=1, le=100),
+              _: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
+    query = select(WorkflowRun).where(WorkflowRun.organization_id == organization_id)
+    if status:
+        query = query.where(WorkflowRun.status == status)
+    return [flow.serialize(r) for r in db.scalars(query.order_by(WorkflowRun.created_at.desc()).limit(limit)).all()]
+
+
+@router.get('/{run_id}')
+def get_run(organization_id: UUID, run_id: UUID, _: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
+    return flow.serialize(_call(flow._get, db, organization_id, run_id))
+
+
+@router.post('/{run_id}/resume')
+def resume_run(organization_id: UUID, run_id: UUID, _: None = Depends(require_csrf),
+               user: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
+    return flow.serialize(_call(flow.resume, db, organization_id, run_id, user.id))
+
+
+@router.post('/{run_id}/review')
+def review_run(organization_id: UUID, run_id: UUID, body: ReviewRun, _: None = Depends(require_csrf),
+               user: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
+    return flow.serialize(_call(flow.review, db, organization_id, run_id, user.id, body.note, body.corrections))
+
+
+@router.post('/{run_id}/cancel')
+def cancel_run(organization_id: UUID, run_id: UUID, _: None = Depends(require_csrf),
+               user: User = Depends(require_recruiter_for_org), db: Session = Depends(get_db)):
+    return flow.serialize(_call(flow.cancel, db, organization_id, run_id, user.id))
