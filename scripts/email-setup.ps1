@@ -36,8 +36,12 @@ $address = (Read-Host 'Gmail address that sends the emails').Trim()
 if ($address -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') { throw 'That does not look like an email address.' }
 $secure = Read-Host 'App password (16 letters, hidden)' -AsSecureString
 $plain = [System.Net.NetworkCredential]::new('', $secure).Password
-$plain = ($plain -replace '\s', '')
-if ($plain.Length -ne 16) { throw "An App Password has 16 letters; you entered $($plain.Length). Create a new one and try again." }
+# Google App Passwords are 16 letters a-z. Copying from the Google page can add spaces, dashes or
+# invisible characters, so keep only the letters.
+$plain = ($plain -replace '[^a-zA-Z]', '').ToLower()
+if ($plain.Length -ne 16) {
+  throw "Found $($plain.Length) letters, but an App Password has exactly 16. Paste only the 16 letters Google showed (spaces are fine) and run this again."
+}
 
 Set-EnvValue 'PHASE6_DELIVERY_MODE' 'smtp'
 Set-EnvValue 'PHASE6_SMTP_ENABLED' 'YES'
