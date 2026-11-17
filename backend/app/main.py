@@ -48,3 +48,8 @@ app.include_router(phase6_router)
 # Phase 6 workflows: Resume Review (checkpointed, allowlisted tools, recruiter review)
 from app.ai.agents.workflows.api import router as phase6_workflows_router
 app.include_router(phase6_workflows_router)
+
+# Phase 7: roles and team, notifications, search, reports, exports, retention, Super Admin
+from app.phase7.api import ROUTERS as phase7_routers
+for _router in phase7_routers:
+    app.include_router(_router)

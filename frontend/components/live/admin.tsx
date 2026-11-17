@@ -1,16 +1,17 @@
 "use client";
 import { useCallback, useState } from "react";
 import {
-  encoded, type AdminDeletionRequest, type AdminUser, type AppSetting, type AuditEntry, type Member,
+  encoded, ROLE_LABELS, type AdminDeletionRequest, type AdminUser, type AppSetting, type AuditEntry, type Health, type Member,
+  type RetentionPreview,
 } from "@/lib/api/phase3";
 import { useAction, useLoad } from "@/lib/live/hooks";
 import { useLive } from "@/lib/live/session";
 import { ImportWorkspace } from "./imports";
-import { ActionMessages, EmptyState, Field, formatDateTime, label, LoadingRows, Notice, PageHeader, Pill } from "./ui";
+import { ActionMessages, EmptyState, Field, formatDate, formatDateTime, LoadingRows, Notice, PageHeader, Pill } from "./ui";
 
-const TABS = ["People and roles", "Organizations", "Data import", "Deletion requests", "Settings", "Audit log"] as const;
+const TABS = ["People and roles", "Organizations", "Data import", "Deletion requests", "Data retention", "System health", "Settings", "Audit log"] as const;
 type Tab = (typeof TABS)[number];
-const ROLES = ["recruiter", "admin", "owner", "interviewer", "candidate"];
+const ROLES = ["hr_manager", "hiring_manager", "recruiter", "interviewer", "admin", "owner", "candidate"];
 
 export function AdminPage() {
   const live = useLive();
@@ -31,6 +32,8 @@ export function AdminPage() {
       {tab === "Organizations" && <OrganizationsTab />}
       {tab === "Data import" && <ImportTab />}
       {tab === "Deletion requests" && <DeletionTab />}
+      {tab === "Data retention" && <RetentionTab />}
+      {tab === "System health" && <HealthTab />}
       {tab === "Settings" && <SettingsTab />}
       {tab === "Audit log" && <AuditTab />}
     </div>
@@ -65,6 +68,11 @@ function PeopleTab() {
       await live.send(`/api/admin-v3/organizations/${encoded(live.orgId)}/members/${encoded(member.user_id)}`, "DELETE");
       source.reload();
     }, `${member.full_name} was removed from ${live.org?.name}.`);
+  const setSuper = (user: AdminUser, value: boolean) =>
+    action.run(async () => {
+      await live.send(`/api/phase7/admin/users/${encoded(user.id)}/platform-admin`, "POST", { value });
+      source.reload();
+    }, value ? `${user.full_name} is now a Super Admin.` : `${user.full_name} is no longer a Super Admin.`);
   const setActive = (user: AdminUser, active: boolean) =>
     action.run(async () => {
       await live.send(`/api/admin-v3/users/${encoded(user.id)}`, "PATCH", { active });
@@ -81,7 +89,7 @@ function PeopleTab() {
       <section className="panel p-5 stack">
         <div>
           <h2 className="section-title">Roles in {live.org?.name || "this organization"}</h2>
-          <p className="text-muted text-sm mt-1">The person must have registered first. Recruiters, admins and owners can manage vacancies and candidates.</p>
+          <p className="text-muted text-sm mt-1">The person must have registered first. HR managers, hiring managers, admins and owners have full access to the organization; recruiters handle jobs, candidates and interviews.</p>
         </div>
         {live.orgId ? (
           <form className="flex flex-wrap gap-2 items-end" onSubmit={assign}>
@@ -90,7 +98,7 @@ function PeopleTab() {
             </Field>
             <Field label="Role">
               <select className="control" value={role} onChange={(event) => setRole(event.target.value)}>
-                {ROLES.map((value) => <option key={value} value={value}>{label(value)}</option>)}
+                {ROLES.map((value) => <option key={value} value={value}>{ROLE_LABELS[value]}</option>)}
               </select>
             </Field>
             <button className="btn btn-primary" disabled={action.busy}>Assign role</button>
@@ -104,7 +112,7 @@ function PeopleTab() {
                 {source.data.members.map((member) => (
                   <tr key={member.user_id}>
                     <td>{member.full_name}<div className="text-muted text-xs">{member.email}</div></td>
-                    <td><Pill value={member.role} /></td>
+                    <td><Pill value={ROLE_LABELS[member.role] || member.role} tone={["owner", "admin", "hr_manager", "hiring_manager"].includes(member.role) ? "orange" : undefined} /></td>
                     <td><button className="btn" disabled={action.busy} onClick={() => remove(member)}>Remove</button></td>
                   </tr>
                 ))}
@@ -128,13 +136,20 @@ function PeopleTab() {
               {users.map((user) => (
                 <tr key={user.id}>
                   <td>{user.full_name}<div className="text-muted text-xs">{user.email}</div></td>
-                  <td>{user.is_platform_admin ? "Platform administrator" : "Standard"}</td>
+                  <td>{user.is_platform_admin ? <Pill value="Super Admin" tone="orange" /> : "Standard"}</td>
                   <td><Pill value={user.active ? "active" : "deactivated"} tone={user.active ? "green" : "grey"} /></td>
                   <td>
                     {user.id === live.session.user.id ? <span className="text-muted">You</span> : (
-                      <button className="btn" disabled={action.busy} onClick={() => setActive(user, !user.active)}>
-                        {user.active ? "Deactivate" : "Reactivate"}
-                      </button>
+                      <span className="flex flex-wrap gap-2">
+                        <button className="btn" disabled={action.busy} onClick={() => setActive(user, !user.active)}>
+                          {user.active ? "Deactivate" : "Reactivate"}
+                        </button>
+                        {user.active && (
+                          <button className="btn" disabled={action.busy} onClick={() => setSuper(user, !user.is_platform_admin)}>
+                            {user.is_platform_admin ? "Remove Super Admin" : "Make Super Admin"}
+                          </button>
+                        )}
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -379,5 +394,109 @@ function AuditTab() {
         </div>
       )}
     </section>
+  );
+}
+
+const HEALTH_LABELS: [string, string, "good-if-true" | "good-if-zero" | "count"][] = [
+  ["database", "Database", "good-if-true"],
+  ["redis", "Redis (sessions and queues)", "good-if-true"],
+  ["worker_running_now", "Agent and email worker busy right now", "count"],
+  ["users", "Active accounts", "count"],
+  ["organizations", "Organizations", "count"],
+  ["emails_waiting", "Emails waiting to send", "count"],
+  ["emails_failed", "Emails that failed", "good-if-zero"],
+  ["resumes_waiting", "Resumes waiting to be read", "count"],
+  ["resumes_failed", "Resumes that could not be read", "good-if-zero"],
+  ["agent_messages_queued", "Agent messages queued", "count"],
+  ["workflows_failed", "Agent workflows that failed", "good-if-zero"],
+  ["deletion_requests_pending", "Deletion requests waiting", "good-if-zero"],
+];
+
+function HealthTab() {
+  const live = useLive();
+  const loader = useCallback(() => live.get<Health>("/api/phase7/admin/health"), [live]);
+  const source = useLoad(loader);
+  if (!source.data) return source.error ? <Notice kind="error">{source.error}</Notice> : <LoadingRows />;
+  const data = source.data;
+  return (
+    <div className="stack">
+      <div className="flex justify-between items-center gap-3">
+        <p className="text-muted text-sm">Checked {formatDateTime(String(data.checked_at))}.</p>
+        <button className="btn" onClick={source.reload}>Check again</button>
+      </div>
+      <div className="table-wrap">
+        <table className="data-table">
+          <tbody>
+            {HEALTH_LABELS.map(([key, text, kind]) => {
+              const value = data[key];
+              const shown = value === null || value === undefined ? "Not available" : typeof value === "boolean" ? (value ? "Yes" : "No") : String(value);
+              const bad = (kind === "good-if-true" && value === false) || (kind === "good-if-zero" && typeof value === "number" && value > 0);
+              return (
+                <tr key={key}>
+                  <td>{text}</td>
+                  <td>{kind === "count" ? <strong>{shown}</strong> : <Pill value={shown} tone={bad ? "red" : "green"} />}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-muted text-xs">&ldquo;Worker busy right now&rdquo; is only Yes for the few seconds the worker is processing; No is normal.</p>
+    </div>
+  );
+}
+
+function RetentionTab() {
+  const live = useLive();
+  const action = useAction();
+  const [days, setDays] = useState(365);
+  const [typed, setTyped] = useState("");
+  const loader = useCallback(() => live.get<RetentionPreview>(`/api/phase7/admin/retention?days=${days}`), [live, days]);
+  const source = useLoad(loader);
+  const preview = source.data;
+  const apply = () => action.run(async () => {
+    const result = await live.send<{ erased: number }>("/api/phase7/admin/retention/apply", "POST", { days, expected_count: preview?.count });
+    setTyped("");
+    source.reload();
+    return result;
+  }, "Deleted. These candidates' data is gone and their accounts are closed.");
+  return (
+    <div className="stack">
+      <Notice>
+        Candidate data should not be kept forever. This finds candidates whose applications are <strong>all closed</strong> (hired, rejected
+        or withdrawn) and who have had <strong>no activity</strong> for the period you choose. Staff and Super Admins are never included.
+        Ask a lawyer how long you must or may keep records under India&apos;s data protection law.
+      </Notice>
+      <div className="toolbar !mb-0">
+        <select aria-label="No activity for" className="control" value={days} onChange={(event) => { setDays(Number(event.target.value)); setTyped(""); }}>
+          {[180, 365, 730, 1095].map((d) => <option key={d} value={d}>No activity for {d >= 365 ? `${d / 365} year${d > 365 ? "s" : ""}` : `${d} days`}</option>)}
+        </select>
+      </div>
+      <ActionMessages error={action.error || source.error} notice={action.notice} />
+      {!preview ? (!source.error && <LoadingRows />) : preview.count === 0 ? (
+        <EmptyState title="Nothing to delete" text="No candidate matches this rule right now." />
+      ) : (
+        <>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>Candidate</th><th>Applications</th><th>Last activity</th></tr></thead>
+              <tbody>
+                {preview.candidates.map((c) => (
+                  <tr key={c.user_id}><td>{c.full_name}<div className="text-muted text-xs">{c.email}</div></td><td>{c.applications}</td><td>{formatDate(c.last_activity)}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <section className="panel p-5 stack">
+            <h2 className="section-title">Delete these {preview.count} candidates</h2>
+            <p className="text-muted text-sm">Deletes their profiles, applications, interviews, resumes and notifications, and closes their accounts. This cannot be undone.</p>
+            <Field label={`Type ${preview.count} to confirm`}>
+              <input className="control" inputMode="numeric" value={typed} onChange={(event) => setTyped(event.target.value)} />
+            </Field>
+            <div><button className="btn btn-primary" disabled={action.busy || typed !== String(preview.count)} onClick={() => void apply()}>Delete permanently</button></div>
+          </section>
+        </>
+      )}
+    </div>
   );
 }

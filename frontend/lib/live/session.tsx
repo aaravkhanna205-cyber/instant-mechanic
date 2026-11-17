@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { api, ApiError, errorText, RECRUITER_ROLES, STAFF_ROLES, type Organization, type Session } from "@/lib/api/phase3";
+import { api, ApiError, errorText, FULL_ACCESS_ROLES, RECRUITER_ROLES, ROLE_LABELS, STAFF_ROLES, type Organization, type Session } from "@/lib/api/phase3";
 
 const ORG_KEY = "im-hire-organization";
 
@@ -10,6 +10,10 @@ type LiveValue = {
   admin: boolean;
   /** Recruiter, admin or owner of the selected organization (or platform admin). */
   recruiter: boolean;
+  /** Owner, admin, HR manager or hiring manager of the selected organization (or platform admin). */
+  fullAccess: boolean;
+  /** "HR manager", "Super Admin", ... for the selected organization. */
+  roleLabel: string;
   organizations: Organization[];
   orgId: string;
   org: Organization | null;
@@ -117,9 +121,13 @@ export function LiveProvider({ area, children }: { area: "staff" | "candidate"; 
     if (!ready) return null;
     const { session, organizations, orgId } = ready;
     const admin = session.user.is_platform_admin;
-    const recruiter = admin || session.user.memberships.some((m) => m.organization_id === orgId && RECRUITER_ROLES.includes(m.role));
+    const roles = session.user.memberships.filter((m) => m.organization_id === orgId).map((m) => m.role);
+    const recruiter = admin || roles.some((role) => RECRUITER_ROLES.includes(role));
+    const fullAccess = admin || roles.some((role) => FULL_ACCESS_ROLES.includes(role));
+    const best = STAFF_ROLES.find((role) => roles.includes(role));
+    const roleLabel = admin ? "Super Admin" : best ? ROLE_LABELS[best] : "Organization member";
     return {
-      session, admin, recruiter, organizations, orgId,
+      session, admin, recruiter, fullAccess, roleLabel, organizations, orgId,
       org: organizations.find((o) => o.id === orgId) || null,
       orgPath: `/api/recruitment/organizations/${encodeURIComponent(orgId)}`,
       setOrgId, reloadOrganizations, get, send, upload, logout,

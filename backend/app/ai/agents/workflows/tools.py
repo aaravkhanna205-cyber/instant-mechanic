@@ -15,8 +15,9 @@ from app.models.schema import (Application, ApplicationStageHistory, Interview, 
                                OrganizationMembership, User)
 from app.phase6_agents.models import AgentTask
 from app.phase6_agents.service import log_event
+from app.security.roles import RECRUITING
 
-RECRUITER_ROLES = ('owner', 'admin', 'recruiter')
+RECRUITER_ROLES = RECRUITING
 
 
 class ToolDenied(PermissionError):

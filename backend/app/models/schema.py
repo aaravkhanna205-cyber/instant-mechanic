@@ -56,7 +56,7 @@ class OrganizationMembership(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
     __table_args__ = (
         UniqueConstraint("user_id", "organization_id", name="uq_membership_user_org"),
-        CheckConstraint("role IN ('owner','admin','recruiter','interviewer','candidate')", name="allowed_role"),
+        CheckConstraint("role IN ('owner','admin','hr_manager','hiring_manager','recruiter','interviewer','candidate')", name="allowed_role"),
     )
 
 
@@ -212,3 +212,9 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+    # Phase 7: which organization it is about, where to click, and email delivery state.
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True)
+    link: Mapped[str | None] = mapped_column(String(300))
+    email_status: Mapped[str | None] = mapped_column(String(20), index=True)  # pending, outbox, sent, failed, skipped
+    emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    email_error: Mapped[str | None] = mapped_column(String(300))

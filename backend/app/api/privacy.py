@@ -20,6 +20,7 @@ from redis import Redis
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.orm import Session
 
+from app.security.roles import STAFF
 from app.api.candidate_import import UNUSABLE_PASSWORD
 from app.api.management import csrf, log
 from app.models.admin_tables import data_deletion_requests, import_rows, password_reset_requests
@@ -32,7 +33,7 @@ from app.security.dependencies import get_current_user, get_db, get_redis, requi
 router = APIRouter(prefix="/api/privacy", tags=["Privacy"])
 admin_router = APIRouter(prefix="/api/admin-v3", tags=["Admin Phase 3"])
 
-STAFF_ROLES = ("owner", "admin", "recruiter", "interviewer")
+STAFF_ROLES = STAFF
 STATUSES = ("pending", "completed", "rejected", "cancelled")
 requests_table = data_deletion_requests
 
@@ -118,6 +119,9 @@ def request_deletion(body: DeletionInput, _: None = Depends(csrf), user: User = 
     db.execute(insert(requests_table).values(id=request_id, user_id=user.id, status="pending",
                                              reason=(body.reason or "").strip() or None))
     log(db, user.id, "privacy.deletion_requested", target=request_id)
+    from app.phase7.notifications import notify_platform_admins
+    notify_platform_admins(db, "deletion_request", f"{user.full_name} asked for their data to be deleted.",
+                           link="/admin")
     db.commit()
     return _out(db.execute(select(requests_table).where(requests_table.c.id == request_id)).one())
 
@@ -170,6 +174,8 @@ def decide_deletion(request_id: UUID, body: DecisionInput, _: None = Depends(csr
     if body.decision == "approve":
         if _is_staff(db, user):
             raise HTTPException(409, "Remove this person's staff roles before deleting their data")
+        from app.phase7.retention import resume_files
+        files = resume_files(db, user.id)
         erase_candidate_data(db, user)
         status = "completed"
     db.execute(update(requests_table).where(requests_table.c.id == request_id).values(
@@ -179,4 +185,6 @@ def decide_deletion(request_id: UUID, body: DecisionInput, _: None = Depends(csr
     db.commit()
     if status == "completed":
         revoke_user_sessions(cache, row.user_id)
+        from app.phase7.retention import remove_files
+        remove_files(files)  # Phase 7: resume files on disk are removed too
     return {"id": str(request_id), "status": status}

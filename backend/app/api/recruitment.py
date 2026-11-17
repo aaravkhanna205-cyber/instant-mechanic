@@ -11,6 +11,9 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from app.security.roles import FULL_ACCESS, STAFF
+from app.phase7.messages import stage_message, when
+from app.phase7.notifications import notify, notify_team
 from app.models.schema import (
     Organization, OrganizationMembership, JobCategory, Job, User,
     CandidateProfile, Application, ApplicationStageHistory, Interview,
@@ -256,6 +259,11 @@ def apply(job_id: UUID, _: None = Depends(require_csrf), user: User = Depends(ge
     db.add(application); db.flush()
     db.add(ApplicationStageHistory(application_id=application.id, changed_by_id=user.id, new_stage="applied"))
     audit(db, job.organization_id, user.id, "application.create", "application", application.id)
+    notify(db, user.id, "application_received",
+           f"We received your application for {job.title}. We will update you here and by email.",
+           organization_id=job.organization_id, link="/portal/applications", email=True)
+    notify_team(db, job.organization_id, "new_application", f"New application: {user.full_name} applied for {job.title}.",
+                link="/candidates", exclude=user.id)
     try:
         db.commit()
     except IntegrityError:
@@ -337,6 +345,12 @@ def change_stage(organization_id: UUID, application_id: UUID, body: StageInput,
     db.add(ApplicationStageHistory(application_id=application.id, changed_by_id=user.id,
                                    previous_stage=previous, new_stage=body.stage, note=body.note))
     audit(db, organization_id, user.id, "application.stage_change", "application", application.id)
+    job = db.get(Job, application.job_id)
+    candidate_user = db.scalar(select(CandidateProfile.user_id).where(CandidateProfile.id == application.candidate_id))
+    text_ = stage_message(body.stage, job.title if job else "your job")
+    if text_ and candidate_user and candidate_user != user.id:
+        notify(db, candidate_user, f"stage_{body.stage}", text_, organization_id=organization_id,
+               link="/portal/applications", email=True)
     db.commit(); db.refresh(application)
     return application_out(application)
 
@@ -368,11 +382,17 @@ def schedule_interview(organization_id: UUID, body: InterviewInput, _: None = De
     if body.interviewer_id and not db.scalar(select(OrganizationMembership.id).where(
         OrganizationMembership.organization_id == organization_id,
         OrganizationMembership.user_id == body.interviewer_id,
-        OrganizationMembership.role.in_(["owner", "admin", "recruiter", "interviewer"]))):
+        OrganizationMembership.role.in_(STAFF))):
         raise HTTPException(422, "Interviewer must be a member of this organization")
     interview = Interview(**body.model_dump())
     db.add(interview); db.flush()
     audit(db, organization_id, user.id, "interview.schedule", "interview", interview.id)
+    application = db.get(Application, interview.application_id)
+    job = db.get(Job, application.job_id)
+    candidate_user = db.scalar(select(CandidateProfile.user_id).where(CandidateProfile.id == application.candidate_id))
+    notify(db, candidate_user, "interview_scheduled",
+           f"Interview for {job.title}: {when(interview.scheduled_at, interview.timezone)}. "
+           "Please confirm in your portal.", organization_id=organization_id, link="/portal/interviews", email=True)
     db.commit()
     return {"id": str(interview.id), "application_id": str(interview.application_id), "status": interview.status}
 
@@ -449,7 +469,7 @@ def audit_logs(organization_id: UUID, db: Session = Depends(get_db), user: User 
     if not user.is_platform_admin and not db.scalar(select(OrganizationMembership.id).where(
         OrganizationMembership.user_id == user.id,
         OrganizationMembership.organization_id == organization_id,
-        OrganizationMembership.role.in_(["owner", "admin"]))):
+        OrganizationMembership.role.in_(FULL_ACCESS))):
         raise HTTPException(403, "Admin role required")
     logs = db.scalars(select(AuditLog).where(AuditLog.organization_id == organization_id)
                       .order_by(AuditLog.created_at.desc()).limit(100)).all()

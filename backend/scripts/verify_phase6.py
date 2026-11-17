@@ -11,7 +11,8 @@ with engine.connect() as c:
     if missing: raise SystemExit(f'ERROR: Missing Phase 6 tables: {sorted(missing)}')
     revision=c.execute(text('SELECT version_num FROM alembic_version')).scalar()
     known=('0006_phase6_agents','0007_phase6_email_tracking','0008_phase6_workflow_runs',
-           '0009_phase6_interview_summary','0010_phase6_job_analytics')
+           '0009_phase6_interview_summary','0010_phase6_job_analytics',
+           '0011_phase7_enterprise')
     if revision not in known:raise SystemExit(f'ERROR: Unexpected Alembic revision {revision}')
     if known.index(revision)>=2 and 'phase6_workflow_runs' not in tables:
         raise SystemExit('ERROR: Missing Phase 6 table: phase6_workflow_runs')

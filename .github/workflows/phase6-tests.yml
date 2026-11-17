@@ -1,7 +1,7 @@
 name: Phase 6 source checks
 on:
   push:
-    branches: [phase6-agentic-automation, phase6b-workflows]
+    branches: [phase6-agentic-automation, phase6b-workflows, phase7-enterprise]
   pull_request:
     paths:
       - 'backend/app/phase6_agents/**'
@@ -9,6 +9,10 @@ on:
       - 'backend/tests/test_phase6b_workflows.py'
       - 'backend/tests/test_phase6c_interview_summary.py'
       - 'backend/tests/test_phase6d_job_and_analytics.py'
+      - 'backend/app/phase7/**'
+      - 'backend/app/security/**'
+      - 'backend/tests/test_phase7_enterprise.py'
+      - 'backend/alembic/versions/0011_phase7_enterprise.py'
       - 'backend/alembic/versions/0010_phase6_job_and_analytics_agents.py'
       - 'backend/alembic/versions/0009_phase6_interview_summary.py'
       - 'backend/alembic/versions/0008_phase6_workflow_runs.py'
@@ -30,10 +34,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r backend/requirements.txt -r backend/requirements-phase6.txt
       - name: Compile Phase 6
-        run: python -m compileall -q backend/app/phase6_agents backend/app/ai/agents/workflows backend/alembic/versions/0006_phase6_agents.py backend/alembic/versions/0008_phase6_workflow_runs.py backend/alembic/versions/0009_phase6_interview_summary.py backend/alembic/versions/0010_phase6_job_and_analytics_agents.py
+        run: python -m compileall -q backend/app/phase6_agents backend/app/ai/agents/workflows backend/alembic/versions/0006_phase6_agents.py backend/alembic/versions/0008_phase6_workflow_runs.py backend/alembic/versions/0009_phase6_interview_summary.py backend/alembic/versions/0010_phase6_job_and_analytics_agents.py backend/app/phase7 backend/alembic/versions/0011_phase7_enterprise.py
       - name: Run Phase 6 tests
         working-directory: backend
-        run: python -m pytest -q tests/test_phase6_full.py tests/test_phase6_http.py tests/test_phase6b_workflows.py tests/test_phase6c_interview_summary.py tests/test_phase6d_job_and_analytics.py
+        run: python -m pytest -q tests/test_phase6_full.py tests/test_phase6_http.py tests/test_phase6b_workflows.py tests/test_phase6c_interview_summary.py tests/test_phase6d_job_and_analytics.py tests/test_phase7_enterprise.py
   frontend:
     runs-on: ubuntu-latest
     steps:

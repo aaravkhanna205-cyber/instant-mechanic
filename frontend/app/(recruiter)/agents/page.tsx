@@ -1,2 +1,6 @@
-import {PreviewPage} from "@/components/shell/preview";
-export default function Page(){return <PreviewPage title="Agents" phase={6}/>}
+import { redirect } from "next/navigation";
+
+// Phase 6 agents are live; this old placeholder address now opens them.
+export default function Page() {
+  redirect("/phase6/workflows");
+}

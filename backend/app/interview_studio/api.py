@@ -89,9 +89,14 @@ def candidate_user_id(db: Session, application: Application) -> UUID | None:
     return db.scalar(select(CandidateProfile.user_id).where(CandidateProfile.id == application.candidate_id))
 
 
+CANDIDATE_EMAIL_KINDS = {"interview_rescheduled", "interview_cancelled"}
+
+
 def notify(db: Session, user_id: UUID | None, kind: str, message: str) -> None:
-    if user_id:
-        db.add(Notification(user_id=user_id, kind=kind, message=message))
+    """Candidate-facing interview changes are emailed too (Phase 7); staff ones stay in-app."""
+    from app.phase7.notifications import notify as phase7_notify
+    link = "/portal/interviews" if kind in CANDIDATE_EMAIL_KINDS else "/interviews"
+    phase7_notify(db, user_id, kind, message, link=link, email=kind in CANDIDATE_EMAIL_KINDS)
 
 
 def question_rows(db: Session, interview_id: UUID) -> list[InterviewQuestion]:

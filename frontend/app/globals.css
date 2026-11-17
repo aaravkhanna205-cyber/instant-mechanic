@@ -101,3 +101,31 @@ input[type=file].control{height:auto;padding:8px 12px}
 .org-select{max-width:220px}
 @media(max-width:900px){.split{grid-template-columns:1fr}.auth{grid-template-columns:1fr}.auth-side{display:none}}
 @media(max-width:520px){.bar-list li{grid-template-columns:86px minmax(0,1fr) 28px}.org-select{max-width:140px}}
+
+/* Phase 7: notification bell, notifications, team, reports, portal next steps */
+.bell{position:relative;padding:10px 12px}
+.bell-count{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--orange);color:#1C1917;font-size:11px;font-weight:800;display:grid;place-items:center;border:2px solid var(--surface)}
+.note-list{list-style:none;margin:0;padding:0}
+.note-list li{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-top:1px solid var(--border)}
+.note-list li:first-child{border-top:0}
+.note-list li.unread{background:var(--soft)}
+.note-dot{width:9px;height:9px;border-radius:999px;margin-top:6px;flex-shrink:0;background:transparent;border:2px solid var(--border)}
+.unread .note-dot{background:var(--orange);border-color:var(--orange)}
+.note-body{flex:1;min-width:0;line-height:1.45}
+.role-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.role-card{padding:14px 16px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.role-card.full{border-left:3px solid var(--orange)}
+.funnel{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.funnel li{display:grid;grid-template-columns:110px minmax(0,1fr) 46px 56px;gap:10px;align-items:center;font-size:13px}
+.funnel .bar-track{height:14px}
+.funnel .drop{font-size:12px;color:var(--secondary);text-align:right}
+.pager{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;margin-top:12px}
+.checklist{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.checklist li{display:flex;gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+.checklist .tick{width:26px;height:26px;border-radius:999px;display:grid;place-items:center;flex-shrink:0;border:2px solid var(--border);color:var(--secondary);font-weight:800;font-size:13px}
+.checklist li.done .tick{background:#DCFCE7;border-color:#86EFAC;color:#14633A}
+.dark .checklist li.done .tick{background:#0F3A22;border-color:#1F5A3A;color:#86EFAC}
+.checklist .grow{flex:1;min-width:0}
+.stage-help{margin-top:10px;font-size:13px;color:var(--secondary)}
+@media print{.sidebar,.header,.no-print,.overlay{display:none!important}.content{padding:0;max-width:none}.panel{box-shadow:none;break-inside:avoid}body{background:#fff}}
+@media(max-width:520px){.funnel li{grid-template-columns:84px minmax(0,1fr) 36px}.funnel .drop{display:none}}

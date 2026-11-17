@@ -4,8 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
-  BrainCircuit, Briefcase, CalendarDays, ChartNoAxesColumn, LayoutDashboard, Menu, Moon,
-  PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, Sun, UserRound, Users,
+  Bell, BrainCircuit, Briefcase, CalendarDays, ChartNoAxesColumn, FileBarChart, LayoutDashboard, Menu, MessagesSquare, Moon,
+  PanelLeftClose, PanelLeftOpen, Settings, Sun, UserRound, Users, UsersRound,
 } from "lucide-react";
 import { brand } from "@/lib/brand";
 import { useLive } from "@/lib/live/session";
@@ -18,10 +18,11 @@ const WORK = [
   { href: "/interviews", label: "Interviews", icon: CalendarDays },
   { href: "/analytics", label: "Analytics", icon: ChartNoAxesColumn },
 ];
-const LATER = [
-  { href: "/agents", label: "AI agents", icon: BrainCircuit },
-  { href: "/approvals", label: "Approvals", icon: ShieldCheck },
+const AGENTS = [
+  { href: "/phase6/workflows", label: "Agent workflows", icon: BrainCircuit },
+  { href: "/phase6", label: "Agent messages", icon: MessagesSquare },
 ];
+const UNREAD_EVERY_MS = 60_000;
 const COLLAPSE_KEY = "im-sidebar-collapsed";
 
 function isActive(path: string, href: string) {
@@ -36,6 +37,22 @@ export function Workspace({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobile, setMobile] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [unread, setUnread] = useState(0);
+  const { get } = live;
+
+  useEffect(() => {
+    let alive = true;
+    const check = () =>
+      get<{ unread: number }>("/api/notifications/unread-count")
+        .then((data) => { if (alive) setUnread(data.unread); })
+        .catch(() => { /* the bell simply keeps its last number */ });
+    check();
+    const timer = window.setInterval(check, UNREAD_EVERY_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [get, path]);
 
   useEffect(() => {
     const stored = localStorage.getItem(COLLAPSE_KEY) === "true";
@@ -78,11 +95,14 @@ export function Workspace({ children }: { children: React.ReactNode }) {
         <nav aria-label="Workspace" className="p-3 space-y-1 flex-1 overflow-y-auto">
           {heading("WORKSPACE")}
           {WORK.map((item) => link(item))}
+          {link({ href: "/reports", label: "Reports", icon: FileBarChart })}
+          {heading("AI AGENTS")}
+          {AGENTS.map((item) => link(item))}
           {heading("MANAGEMENT")}
+          {link({ href: "/notifications", label: "Notifications", icon: Bell }, unread ? String(unread) : undefined)}
+          {live.fullAccess && link({ href: "/team", label: "Team and roles", icon: UsersRound })}
           {live.admin && link({ href: "/admin", label: "Super Admin", icon: Settings })}
           {link({ href: "/portal", label: "Candidate portal", icon: UserRound })}
-          {heading("LATER PHASES")}
-          {LATER.map((item) => link(item, "Phase 6"))}
         </nav>
         <div className="p-3 border-t border-[var(--border)]">
           <button onClick={toggle} className="navlink w-full" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
@@ -110,6 +130,10 @@ export function Workspace({ children }: { children: React.ReactNode }) {
                 {live.organizations.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}
               </select>
             )}
+            <Link href="/notifications" className="btn bell" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}>
+              <Bell size={18} />
+              {unread > 0 && <span className="bell-count" aria-hidden>{unread > 99 ? "99+" : unread}</span>}
+            </Link>
             <button aria-label="Toggle dark mode" className="btn" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
               {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
             </button>
@@ -122,7 +146,7 @@ export function Workspace({ children }: { children: React.ReactNode }) {
                 <div className="px-2.5 py-2 text-xs text-muted break-all">
                   {live.session.user.email}
                   <br />
-                  {live.admin ? "Platform administrator" : "Organization member"}
+                  {live.roleLabel}
                 </div>
                 <Link href="/auth-live/account">Account</Link>
                 <button onClick={() => live.logout().catch((error) => setLogoutError(errorText(error)))}>Sign out</button>

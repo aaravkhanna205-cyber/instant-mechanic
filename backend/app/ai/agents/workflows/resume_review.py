@@ -156,6 +156,9 @@ def advance(db: Session, run: WorkflowRun, actor_id: UUID | None) -> WorkflowRun
     if needs_review:
         run.status = 'waiting_review'
         log_event(db, run.organization_id, actor_id, 'workflow.review_requested', details={'run': str(run.id)})
+        from app.phase7.notifications import notify
+        notify(db, run.started_by_id, 'workflow_review', f'An agent workflow ({run.workflow.replace("_", " ")}) is ready for your review.',
+               organization_id=run.organization_id, link='/phase6/workflows')
     else:  # read-only workflows change nothing, so there is nothing to approve
         run.status = 'completed'
         run.completed_at = utcnow()

@@ -15,6 +15,10 @@ services:
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
     depends_on:
       - clamav
+  p6-worker:
+    environment:
+      # Phase 7: links in candidate notification emails point to the public site.
+      PUBLIC_URL: ${PUBLIC_URL:-}
   web:
     build:
       args:

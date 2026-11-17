@@ -6,6 +6,7 @@ import redis
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
+from app.security.roles import FULL_ACCESS, RECRUITING
 from app.core.config import settings
 from app.models.schema import User, OrganizationMembership, Organization
 from app.security.sessions import SessionRecord, COOKIE_NAME, read_session
@@ -64,6 +65,22 @@ def require_recruiter_for_org(organization_id: UUID, db: Session = Depends(get_d
         OrganizationMembership.user_id == user.id,
         OrganizationMembership.organization_id == organization_id
     )).all()
-    if not any(r in ("owner", "admin", "recruiter") for r in roles):
+    if not any(r in RECRUITING for r in roles):
+        raise HTTPException(status_code=403, detail="Access denied")
+    return user
+
+
+def require_full_access_for_org(organization_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> User:
+    """Owner, organization admin, HR manager or hiring manager of this organization (or Super Admin)."""
+    if user.is_platform_admin:
+        return user
+    org = db.get(Organization, organization_id)
+    if not org or not org.active:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    roles = db.scalars(select(OrganizationMembership.role).where(
+        OrganizationMembership.user_id == user.id,
+        OrganizationMembership.organization_id == organization_id
+    )).all()
+    if not any(r in FULL_ACCESS for r in roles):
         raise HTTPException(status_code=403, detail="Access denied")
     return user

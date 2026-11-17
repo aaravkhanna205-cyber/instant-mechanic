@@ -14,6 +14,7 @@ from redis import Redis
 from app.core.config import settings
 from app.models.schema import User
 from .models import AgentProposal, AgentDelivery
+from app.phase7.notifications import send_pending_emails
 from .service import log_event
 from .policy import safe_recipient
 
@@ -106,6 +107,11 @@ def run():
                 try:
                     with Session(engine) as db:
                         while process_one(db,mode):pass
+                        # Phase 7: candidate notification emails, same delivery mode as agent messages.
+                        try:
+                            send_pending_emails(db,mode,deliver,site_url=os.getenv('PUBLIC_URL',''))
+                        except Exception:
+                            db.rollback();log.exception('Notification emails failed')
                 finally:
                     # Do not delete a lease belonging to another worker.
                     lua='if redis.call("get",KEYS[1]) == ARGV[1] then return redis.call("del",KEYS[1]) else return 0 end'

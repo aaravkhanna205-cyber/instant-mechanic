@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.models.schema import User, Organization, OrganizationMembership, AuditLog, Job, JobCategory, Application
 from app.models.admin_tables import import_batches
 from app.security.passwords import hash_password
+from app.security.roles import ALL_ROLES
 from app.security.dependencies import get_db, get_current_user, get_redis, get_session_record, require_platform_admin, require_recruiter_for_org
 from app.security.sessions import SessionRecord
 from redis import Redis
@@ -130,7 +131,7 @@ def remove_member(organization_id: UUID, user_id: UUID, _: None = Depends(csrf),
 
 @router.post('/memberships', status_code=201)
 def grant_membership(body: MembershipInput, _: None = Depends(csrf), admin: User = Depends(require_platform_admin), db: Session = Depends(get_db)):
-    if body.role not in ('owner','admin','recruiter','interviewer','candidate'):
+    if body.role not in ALL_ROLES:
         raise HTTPException(422,'Invalid organization role')
     target = db.scalar(select(User).where(User.email == str(body.email).lower()))
     org = db.get(Organization, body.organization_id)
